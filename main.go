@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -50,12 +52,11 @@ Error:
 	if _, err = os.Stat(path); err != nil {
 		goto Error
 	}
-	user, pw, err := requireAuth()
+	user, pw, err := requireAuth(*u)
 	if err != nil {
 		goto Error
 	}
 	if err = Sync(path, fn, *u, DefaultClient, user, pw); err != nil {
-		fmt.Println("...")
 		goto Error
 	}
 }
@@ -92,11 +93,9 @@ func Sync(path string, fn remoteFunc, u url.URL,
 	client *http.Client, user, pw string) (err error) {
 	remotefiles, err := fn(u, client, user, pw)
 	if err != nil {
-		fmt.Println("...")
 		return
 	}
 	for _, file := range remotefiles {
-		fmt.Println("...")
 		file.Path = filepath.Join(path, file.Path)
 		err = Local(file)
 		if err != nil {
@@ -152,12 +151,35 @@ func prompt(msg string) (input string, err error) {
 	return
 }
 
-func requireAuth() (user, password string, err error) {
-	if user, err = prompt("User: "); err != nil {
+func requireAuth(u url.URL) (user, password string, err error) {
+	user, password, err = keychainAuth(u)
+	if err != nil {
+		fmt.Println("Error in keychain auth: " + err.Error())
+		if user, err = prompt("User: "); err != nil {
+			return
+		}
+		if password, err = prompt("Password: "); err != nil {
+			return
+		}
+	}
+	return
+}
+
+func keychainAuth(u url.URL) (username, password string, err error) {
+	securityCmd := "/usr/bin/security"
+	securitySubCmd := "find-internet-password"
+	cmd := exec.Command(securityCmd, securitySubCmd, "-gs", u.Host)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
 		return
 	}
-	if password, err = prompt("Password: "); err != nil {
-		return
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "\"acct\"") {
+			username = line[18 : len(line)-1]
+		}
+		if strings.Contains(line, "password: ") {
+			password = line[11 : len(line)-1]
+		}
 	}
 	return
 }
