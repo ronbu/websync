@@ -25,6 +25,7 @@ func Dav(u url.URL, c *http.Client, user, pw string) (
 	if err != nil {
 		return
 	}
+	req.SetBasicAuth(user, pw)
 	resp, err := c.Do(req)
 	if err != nil {
 		return

@@ -21,22 +21,23 @@ var (
 )
 
 func main() {
-Error:
 	var err error
+Error:
 	if err != nil {
 		log.Fatalln(err)
 		os.Exit(1)
 	}
+
 	flag.Usage = func() {
 		fmt.Println("URL PATH")
 	}
-	args := flag.Args()
-	if len(args) != 2 {
+	flag.Parse()
+	if flag.NArg() != 2 {
 		flag.PrintDefaults()
-		err = errors.New("")
+		err = errors.New("Wrong number of Arguments")
 		goto Error
 	}
-	u, err := url.Parse(args[0])
+	u, err := url.Parse(flag.Args()[0])
 	if err != nil {
 		goto Error
 	}
@@ -45,7 +46,7 @@ Error:
 		err = errors.New("Unknown URL")
 		goto Error
 	}
-	path := args[1]
+	path := flag.Args()[1]
 	if _, err = os.Stat(path); err != nil {
 		goto Error
 	}
@@ -54,6 +55,7 @@ Error:
 		goto Error
 	}
 	if err = Sync(path, fn, *u, DefaultClient, user, pw); err != nil {
+		fmt.Println("...")
 		goto Error
 	}
 }
@@ -75,10 +77,13 @@ func (f File) ReadAll() (content []byte, err error) {
 }
 
 func FindRemoteFunc(u url.URL) remoteFunc {
-	if u.Host == "elearning.hslu.ch" {
-		//return Ilias
-	} else if u.Scheme == "webdav" {
+	switch {
+	//case u.Host == "elearning.hslu.ch":
+	//return Ilias
+	case u.Scheme == "dav" || u.Scheme == "davs":
 		return Dav
+	default:
+		return nil
 	}
 	return nil
 }
@@ -87,9 +92,11 @@ func Sync(path string, fn remoteFunc, u url.URL,
 	client *http.Client, user, pw string) (err error) {
 	remotefiles, err := fn(u, client, user, pw)
 	if err != nil {
+		fmt.Println("...")
 		return
 	}
 	for _, file := range remotefiles {
+		fmt.Println("...")
 		file.Path = filepath.Join(path, file.Path)
 		err = Local(file)
 		if err != nil {
@@ -140,7 +147,8 @@ func StripPassword(url url.URL) url.URL {
 
 func prompt(msg string) (input string, err error) {
 	fmt.Print(msg)
-	_, err = fmt.Scanln(input)
+	res := &input
+	_, err = fmt.Scanln(res)
 	return
 }
 
