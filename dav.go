@@ -52,6 +52,11 @@ func Dav(u url.URL, c *http.Client, user, pw string) (
 			continue
 		}
 		filepath := resp.Name[len(u.Path):]
+		filepath, err = url.QueryUnescape(filepath)
+		if err != nil {
+			log.Fatalln(err)
+			continue
+		}
 		//var isDir bool
 		if resp.Mimetype == "httpd/unix-directory" {
 			//isDir = true

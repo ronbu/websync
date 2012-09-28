@@ -79,8 +79,8 @@ func (f File) ReadAll() (content []byte, err error) {
 
 func FindRemoteFunc(u url.URL) remoteFunc {
 	switch {
-	//case u.Host == "elearning.hslu.ch":
-	//return Ilias
+	case u.Host == "elearning.hslu.ch":
+		return Ilias
 	case u.Scheme == "dav" || u.Scheme == "davs":
 		return Dav
 	default:
@@ -134,7 +134,7 @@ func Local(file File) (err error) {
 
 		osfile.Sync()
 		os.Chtimes(file.Path, file.Mtime, file.Mtime)
-		log.Println(file.Path)
+		fmt.Println(file.Path)
 	}
 	return err
 }
@@ -197,7 +197,6 @@ func (j cookieJar) Cookies(_ *url.URL) []*http.Cookie {
 	for _, cookie := range j {
 		cookies = append(cookies, cookie)
 	}
-	log.Print(cookies)
 	return cookies
 }
 
