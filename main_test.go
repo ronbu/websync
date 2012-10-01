@@ -1,18 +1,12 @@
 package main
 
 import (
-	"net/http/httptest"
 	// "errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
-	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 type testFS map[string]File
@@ -47,41 +41,12 @@ func NewFake(content string) func() (io.ReadCloser, error) {
 }
 
 var (
-	zerotime time.Time = time.Time{}
-	before             = time.Date(2000, 1, 1, 1, 1, 1, 0, time.UTC)
-	same               = time.Date(2000, 1, 1, 1, 1, 1, 1000, time.UTC)
-	after              = time.Date(2000, 1, 1, 1, 1, 2, 0, time.UTC)
-
-	table = map[string][2][]File{
-		"Paths": {{
-			{"/a/b", before, NewFake("")},
-			{"/b", after, NewFake("")},
-		}, {
-			{"/a/b", after, NewFake("")},
-			{"/c", before, NewFake("")},
-		}},
-		"Comparing Timestamps": {{
-			{"/a", before, NewFake("")},
-			{"/b", after, NewFake("")},
-		}, {
-			{"/a", after, NewFake("")},
-			{"/b", before, NewFake("")},
-		}},
-		"Zerotime": {{ //TODO support zerotime
-		//	{"a", zerotime, NewFake("")},
-		//	{"b", after, NewFake("")},
-		}, {
-		// {"a", after, NewFake("")},
-		// {"b", zerotime, NewFake("")},
-		}},
-	}
-
 	handlers = map[string]handlerAndlistFunc{
 		"webdav": {handler: NewDavHandler, listFunc: Dav},
 	}
 )
 
-func TestEndToEnd(t *testing.T) {
+/*func TestEndToEnd(t *testing.T) {
 	username, password := "user", "pw"
 	for scenario, fss := range table {
 		for handlername, handlerAndlistFunc := range handlers {
@@ -118,36 +83,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 	}
 
-}
-
-func LocalTestFs(basepath string) (files []File, err error) {
-	err = filepath.Walk(basepath,
-		func(path string, info os.FileInfo, inerr error) (err error) {
-			if inerr != nil {
-				return inerr
-			}
-			if info.IsDir() {
-				return
-			}
-			file, err := os.Open(path)
-			if err != nil {
-				return
-			}
-			content, err := ioutil.ReadAll(file)
-			mtime := info.ModTime()
-			if mtime.Equal(unixZerotime) {
-				mtime = zerotime
-			}
-			files = append(files,
-				File{
-					Path:     path[len(basepath):],
-					Mtime:    info.ModTime(),
-					FileFunc: NewFake(string(content)),
-				})
-			return
-		})
-	return
-}
+}*/
 
 func printErrors(handlername, scenario string,
 	expected, actual testFS, t *testing.T) {
@@ -162,28 +98,6 @@ func printErrors(handlername, scenario string,
 	for _, error := range errs {
 		t.Log(error)
 	}
-}
-
-func expectedBehaviour(remote, local testFS) (expected testFS) {
-	expected = make(testFS)
-	//TODO: Atime behaviour
-
-	for path, file := range local {
-		expected[path] = file
-	}
-	for path, file := range remote {
-		// Many filesystems do not support sub seconds timestamps
-		mtime := removeNanoseconds(file.Mtime)
-		lmtime := removeNanoseconds(local[path].Mtime)
-		if mtime.After(lmtime) ||
-			file.Mtime.Equal(zerotime) ||
-			local[path].Mtime.Equal(zerotime) {
-			expected[path] = file
-		} else {
-			expected[path] = local[path]
-		}
-	}
-	return
 }
 
 func findErrors(expected, actual testFS) (errs []string) {
@@ -201,7 +115,8 @@ func findErrors(expected, actual testFS) (errs []string) {
 		}
 		helper := func(field string, a, e interface{}) {
 			errs = append(errs,
-				fmt.Sprintf("%s: field '%s' %v should be %v", path, field, a, e))
+				fmt.Sprintf("%s: field '%s' %v should be %v",
+					path, field, a, e))
 		}
 		if !afile.Mtime.Equal(file.Mtime) {
 			helper("mtime", afile.Mtime, file.Mtime)
@@ -210,18 +125,4 @@ func findErrors(expected, actual testFS) (errs []string) {
 		}
 	}
 	return
-}
-
-func TempDir(t *testing.T, prefix string, remove chan bool) (path string) {
-	path, err := ioutil.TempDir("", prefix)
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		_ = <-remove
-		if err := os.RemoveAll(path); err != nil {
-			t.Fatal(err)
-		}
-	}()
-	return path
 }
