@@ -62,11 +62,12 @@ Error:
 }
 
 type remoteFunc func(u url.URL, c *http.Client, user, pw string) ([]File, error)
+type fileFunc func() (reader io.ReadCloser, err error)
 
 type File struct {
 	Path     string
 	Mtime    time.Time
-	FileFunc func() (reader io.ReadCloser, err error)
+	FileFunc fileFunc
 }
 
 func (f File) ReadAll() (content []byte, err error) {
@@ -81,6 +82,8 @@ func FindRemoteFunc(u url.URL) remoteFunc {
 	switch {
 	case u.Host == "elearning.hslu.ch":
 		return Ilias
+	case u.Host == "api.tumblr.com":
+		return Tumblr
 	case u.Scheme == "dav" || u.Scheme == "davs":
 		return Dav
 	default:
