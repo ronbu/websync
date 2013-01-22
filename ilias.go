@@ -49,13 +49,15 @@ func Modules(c *http.Client, uri url.URL, user, pw string) (
 	modules map[string]string, err error) {
 	response, err := c.PostForm(uri.String(),
 		url.Values{"username": {user}, "password": {pw}})
-	response.Body.Close()
+	defer response.Body.Close()
+	if response.StatusCode != 302 {
+		return nil, errors.New("Login failed (wrong URL or credentials)")
+	}
 	if err != nil {
 		return
 	}
 	location, err := response.Location()
 	if err != nil {
-		//log.Print(response)
 		return
 	}
 	response, err = c.Get(location.String())
