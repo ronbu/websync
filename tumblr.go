@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,13 +14,21 @@ import (
 
 const (
 	api           = "http://api.tumblr.com/v2"
-	apiBlog       = api + "/blog/%s"
+	apiBlog       = api + "/blog/%s.tumblr.com"
 	apiPhotoPosts = apiBlog + "/posts?api_key=%s&filter=raw&offset=%d"
 )
 
+type fakeCloser struct {
+	io.Reader
+}
+
+func (f fakeCloser) Close() (err error) {
+	return
+}
+
 func Tumblr(u url.URL, c *http.Client, _, key string) (
 	files []File, err error) {
-	for i := 0; i < 100; i += 20{
+	for i := int64(0); true; i += 20 {
 		reqUrl := apiPhotoPosts
 		r, err := c.Get(fmt.Sprintf(reqUrl, u.Path[1:], key, i))
 		if err != nil {
@@ -30,6 +39,8 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 		if err != nil {
 			return files, err
 		}
+		// println(string(r.Request.URL.String()))
+		// println(string(body))
 		var cr completeResponse
 		err = json.Unmarshal(body, &cr)
 		if err != nil {
@@ -45,6 +56,20 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 
 			fileName := strconv.FormatInt(p.Id, 10)
 			mtime := time.Unix(p.Timestamp, 0)
+
+			//store metadata
+			files = append(files, File{
+				Path:  fmt.Sprintf(".%s.json", fileName),
+				Mtime: mtime,
+				FileFunc: func() (r io.ReadCloser, err error) {
+					b, err := json.MarshalIndent(p, "", "\t")
+					if err != nil {
+						return
+					}
+					// println(string(b))
+					return fakeCloser{bytes.NewReader(b)}, err
+				},
+			})
 
 			switch p.PostType {
 			case "text", "quote", "link", "answer", "video", "audio", "chat":
@@ -75,6 +100,9 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 				return nil, err
 
 			}
+		}
+		if i > cr.Response.Blog.Posts {
+			break
 		}
 	}
 	return
