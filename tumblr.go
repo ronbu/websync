@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -29,7 +30,7 @@ func (f fakeCloser) Close() (err error) {
 
 func Tumblr(u url.URL, c *http.Client, _, key string) (
 	files []File, err error) {
-	for i := int64(0); true; i += 20 {
+	for i := int64(0); i < 150; i += 20 {
 		reqUrl := apiPhotoPosts
 		r, err := c.Get(fmt.Sprintf(reqUrl, u.Path[1:], key, i))
 		if err != nil {
@@ -40,11 +41,14 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 		if err != nil {
 			return files, err
 		}
-		// println(string(r.Request.URL.String()))
+		println(string(r.Request.URL.String()))
 		// println(string(body))
 		var cr completeResponse
 		err = json.Unmarshal(body, &cr)
 		if err != nil {
+			if cr.Meta.Msg != "" {
+				err = errors.New(u.String() + ": " + cr.Meta.Msg)
+			}
 			return files, err
 		}
 
@@ -73,9 +77,19 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 			})
 
 			switch p.PostType {
-			case "quote", "link", "answer", "video", "audio", "chat":
+			case "quote", "link", "answer", "audio", "chat":
 				//not implemented
 				continue
+
+			case "video":
+				// println("video source: ", p.Source_url)
+				// println("post url: ", p.Post_url)
+				u, _ := url.Parse(p.Source_url)
+				f, err := YoutubeDl(*u, c, "", "")
+				if err != nil || len(f) != 1 {
+					continue
+				}
+				files = append(files, f[0])
 
 			case "text":
 				var p textPost

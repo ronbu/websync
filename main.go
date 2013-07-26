@@ -100,8 +100,7 @@ func registry() (find func(u *url.URL) remoteFunc, err error) {
 	}
 	items := []item{}
 	items = append(items, item{"elearning.hslu.ch", HOST, Ilias})
-	items = append(items, item{"api.tumblr.com", HOST, Tumblr})
-	items = append(items, item{"youtube.com", HOST, YoutubeDl})
+	items = append(items, item{"tumblr.com", HOST, Tumblr})
 	items = append(items, item{"dav", PROTOCOL, Dav})
 	items = append(items, item{"davs", PROTOCOL, Dav})
 
@@ -134,6 +133,20 @@ func registry() (find func(u *url.URL) remoteFunc, err error) {
 		return nil
 	}, nil
 }
+
+// func run(c exec.Cmd){
+// 		b, err := cmd.CombinedOutput()
+// 	output := string(b)
+// 	if err != nil {
+// 		if output == "" {
+// 			return
+// 		} else {
+// 			output = strings.Replace(output, "\n", "\t", -1)
+// 			return nil, errors.New(
+// 				strings.Join(cmd.Args, " ") + ": \n" + output)
+// 		}
+// 	}
+// }
 
 func Sync(path string, fn remoteFunc, u url.URL,
 	client *http.Client, user, pw string) (err error) {
