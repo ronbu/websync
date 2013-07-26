@@ -71,12 +71,32 @@ Error:
 }
 
 type remoteFunc func(u url.URL, c *http.Client, user, pw string) ([]File, error)
+type asyncRemote func(u url.URL, c *http.Client, user, pw string,
+	files chan File, errs chan error)
 type fileFunc func() (reader io.ReadCloser, err error)
 
 type File struct {
 	Path     string
 	Mtime    time.Time
 	FileFunc fileFunc
+}
+
+func asyncAdapter(f remoteFunc) asyncRemote {
+	return func(u url.URL, c *http.Client, user, pw string,
+		files chan File, errs chan error) {
+
+		fs, err := f(u, c, user, pw)
+		if err != nil {
+			errs <- err
+		} else {
+			for _, f := range fs {
+				files <- f
+			}
+		}
+		close(errs)
+		close(files)
+		return
+	}
 }
 
 func (f File) ReadAll() (content []byte, err error) {
@@ -150,14 +170,25 @@ func registry() (find func(u *url.URL) remoteFunc, err error) {
 
 func Sync(path string, fn remoteFunc, u url.URL,
 	client *http.Client, user, pw string) (err error) {
-	remotefiles, err := fn(u, client, user, pw)
-	if err != nil {
-		return
-	}
-	for _, file := range remotefiles {
-		file.Path = filepath.Join(path, file.Path)
-		err = Local(file)
-		if err != nil {
+	errs := make(chan error)
+	files := make(chan File, 10)
+
+	go asyncAdapter(fn)(u, client, user, pw, files, errs)
+
+	for {
+		select {
+		case f, ok := <-files:
+			if !ok {
+				return
+			}
+			go func() {
+				f.Path = filepath.Join(path, f.Path)
+				err = Local(f)
+				if err != nil {
+					return
+				}
+			}()
+		case err = <-errs:
 			return
 		}
 	}

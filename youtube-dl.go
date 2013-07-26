@@ -83,8 +83,8 @@ func YoutubeDl(u url.URL, c *http.Client, user, password string) (
 				cmd := exec.Command("/usr/bin/env",
 					"youtube-dl", "--id", u.String())
 				cmd.Dir = base
-				cmd.Stdout = os.Stderr
-				cmd.Stderr = os.Stderr
+				// cmd.Stdout = os.Stderr
+				// cmd.Stderr = os.Stderr
 				err = cmd.Run()
 				if err != nil {
 					return
