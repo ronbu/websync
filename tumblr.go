@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -72,11 +73,26 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 			})
 
 			switch p.PostType {
-			case "text", "quote", "link", "answer", "video", "audio", "chat":
+			case "quote", "link", "answer", "video", "audio", "chat":
 				//not implemented
 				continue
+
+			case "text":
+				var p textPost
+				err = json.Unmarshal(rawPost, &p)
+				if err != nil {
+					return nil, err
+				}
+				files = append(files, File{
+					Path: fmt.Sprintf(
+						"%d.md", i),
+					Mtime: mtime,
+					FileFunc: func() (r io.ReadCloser, err error) {
+						return fakeCloser{strings.NewReader(p.Body)}, nil
+					},
+				})
+
 			case "photo":
-				// TODO handle Photosets correctly
 				var p photoPost
 				err = json.Unmarshal(rawPost, &p)
 				if err != nil {
