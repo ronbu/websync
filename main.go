@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -171,22 +172,25 @@ func registry() (find func(u *url.URL) remoteFunc, err error) {
 func Sync(path string, fn remoteFunc, u url.URL,
 	client *http.Client, user, pw string) (err error) {
 	errs := make(chan error)
-	files := make(chan File, 10)
+	files := make(chan File, 1)
 
 	go asyncAdapter(fn)(u, client, user, pw, files, errs)
 
+	sync := make(chan bool, 5)
 	for {
 		select {
 		case f, ok := <-files:
 			if !ok {
 				return
 			}
+			sync <- true
 			go func() {
 				f.Path = filepath.Join(path, f.Path)
 				err = Local(f)
 				if err != nil {
 					return
 				}
+				<-sync
 			}()
 		case err = <-errs:
 			return
@@ -223,14 +227,21 @@ func requireAuth(u url.URL) (user, password string, err error) {
 
 func keychainAuth(u url.URL) (username, password string, err error) {
 	//TODO: Replace this with proper api accessing keychain
+	host := findHost(u.Host)
+	if host == "" {
+		err = errors.New("No Keychain item found")
+		return
+	}
+
 	securityCmd := "/usr/bin/security"
 	securitySubCmd := "find-internet-password"
-	cmd := exec.Command(securityCmd, securitySubCmd, "-gs", u.Host)
-	out, err := cmd.CombinedOutput()
+	cmd := exec.Command(securityCmd, securitySubCmd, "-gs", host)
+	b, err := cmd.CombinedOutput()
+	output := string(b)
 	if err != nil {
 		return
 	}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "\"acct\"") {
 			username = line[18 : len(line)-1]
 		}
@@ -239,6 +250,28 @@ func keychainAuth(u url.URL) (username, password string, err error) {
 		}
 	}
 	return
+}
+
+func findHost(host string) (result string) {
+	securityCmd := "/usr/bin/security"
+	securitySubCmd := "dump-keychain"
+	cmd := exec.Command(securityCmd, securitySubCmd)
+	b, err := cmd.CombinedOutput()
+	out := string(b)
+	if err != nil {
+		return
+	}
+	r := regexp.MustCompile(`srvr"<blob>="(.*?)"`)
+	ms := r.FindAllStringSubmatch(out, -1)
+	for _, m := range ms {
+		name := m[1]
+		// println(name)
+		if strings.HasSuffix(name, host) || strings.HasSuffix(host, name) {
+			// println(name)
+			return name
+		}
+	}
+	return ""
 }
 
 // type cookieJar map[string]*http.Cookie
