@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/exec"
@@ -18,8 +19,7 @@ import (
 )
 
 var (
-	DefaultClient = &http.Client{Jar: cookieJar{}}
-	unixZerotime  = time.Unix(0, 0)
+	unixZerotime = time.Unix(0, 0)
 )
 
 func main() {
@@ -43,7 +43,11 @@ Error:
 	if err != nil {
 		goto Error
 	}
-	fn := FindRemoteFunc(*u)
+	lookup, err := registry()
+	if err != nil {
+		goto Error
+	}
+	fn := lookup(u)
 	if fn == nil {
 		err = errors.New("Unknown URL")
 		goto Error
@@ -52,11 +56,16 @@ Error:
 	if _, err = os.Stat(path); err != nil {
 		goto Error
 	}
-	user, pw, err := requireAuth(*u)
+	user, pw, err := keychainAuth(*u)
+	if err != nil {
+		println("security: ", err.Error())
+	}
+	cj, err := cookiejar.New(nil)
 	if err != nil {
 		goto Error
 	}
-	if err = Sync(path, fn, *u, DefaultClient, user, pw); err != nil {
+	c := &http.Client{Jar: cj}
+	if err = Sync(path, fn, *u, c, user, pw); err != nil {
 		goto Error
 	}
 }
@@ -78,18 +87,52 @@ func (f File) ReadAll() (content []byte, err error) {
 	return ioutil.ReadAll(reader)
 }
 
-func FindRemoteFunc(u url.URL) remoteFunc {
-	switch {
-	case u.Host == "elearning.hslu.ch":
-		return Ilias
-	case u.Host == "api.tumblr.com":
-		return Tumblr
-	case u.Scheme == "dav" || u.Scheme == "davs":
-		return Dav
-	default:
-		return nil
+func registry() (find func(u *url.URL) remoteFunc, err error) {
+	const (
+		HOST = iota
+		PROTOCOL
+		NAME
+	)
+	type item struct {
+		name string
+		kind int
+		f    remoteFunc
 	}
-	return nil
+	items := []item{}
+	items = append(items, item{"elearning.hslu.ch", HOST, Ilias})
+	items = append(items, item{"api.tumblr.com", HOST, Tumblr})
+	items = append(items, item{"youtube.com", HOST, YoutubeDl})
+	items = append(items, item{"dav", PROTOCOL, Dav})
+	items = append(items, item{"davs", PROTOCOL, Dav})
+
+	c := exec.Command("/usr/bin/env", "youtube-dl", "--extractor-descriptions")
+	output, err := c.CombinedOutput()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(output), "\n") {
+		items = append(items, item{strings.ToLower(line), NAME, YoutubeDl})
+	}
+
+	return func(u *url.URL) remoteFunc {
+		for _, item := range items {
+			switch item.kind {
+			case HOST:
+				if strings.HasSuffix(u.Host, item.name) {
+					return item.f
+				}
+			case PROTOCOL:
+				if u.Scheme == item.name {
+					return item.f
+				}
+			case NAME:
+				if strings.Contains(u.Host, item.name) {
+					return item.f
+				}
+			}
+		}
+		return nil
+	}, nil
 }
 
 func Sync(path string, fn remoteFunc, u url.URL,
@@ -135,6 +178,7 @@ func requireAuth(u url.URL) (user, password string, err error) {
 }
 
 func keychainAuth(u url.URL) (username, password string, err error) {
+	//TODO: Replace this with proper api accessing keychain
 	securityCmd := "/usr/bin/security"
 	securitySubCmd := "find-internet-password"
 	cmd := exec.Command(securityCmd, securitySubCmd, "-gs", u.Host)
@@ -153,21 +197,21 @@ func keychainAuth(u url.URL) (username, password string, err error) {
 	return
 }
 
-type cookieJar map[string]*http.Cookie
+// type cookieJar map[string]*http.Cookie
 
-func (j cookieJar) SetCookies(_ *url.URL, cookies []*http.Cookie) {
-	for _, cookie := range cookies {
-		j[cookie.Name] = cookie
-	}
-}
+// func (j cookieJar) SetCookies(_ *url.URL, cookies []*http.Cookie) {
+// 	for _, cookie := range cookies {
+// 		j[cookie.Name] = cookie
+// 	}
+// }
 
-func (j cookieJar) Cookies(_ *url.URL) []*http.Cookie {
-	var cookies = []*http.Cookie{}
-	for _, cookie := range j {
-		cookies = append(cookies, cookie)
-	}
-	return cookies
-}
+// func (j cookieJar) Cookies(_ *url.URL) []*http.Cookie {
+// 	var cookies = []*http.Cookie{}
+// 	for _, cookie := range j {
+// 		cookies = append(cookies, cookie)
+// 	}
+// 	return cookies
+// }
 
 func removeNanoseconds(in time.Time) time.Time {
 	return time.Date(
