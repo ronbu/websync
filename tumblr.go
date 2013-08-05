@@ -30,7 +30,7 @@ func (f fakeCloser) Close() (err error) {
 
 func Tumblr(u url.URL, c *http.Client, _, key string) (
 	files []File, err error) {
-	for i := int64(0); i < 150; i += 20 {
+	for i := int64(0); i < 60; i += 20 {
 		reqUrl := apiPhotoPosts
 		r, err := c.Get(fmt.Sprintf(reqUrl, u.Path[1:], key, i))
 		if err != nil {
@@ -41,7 +41,7 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 		if err != nil {
 			return files, err
 		}
-		println(string(r.Request.URL.String()))
+		// println(string(r.Request.URL.String()))
 		// println(string(body))
 		var cr completeResponse
 		err = json.Unmarshal(body, &cr)
@@ -77,9 +77,52 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 			})
 
 			switch p.PostType {
-			case "quote", "link", "answer", "audio", "chat":
+			case "answer", "audio", "chat":
 				//not implemented
 				continue
+			case "link":
+				var p linkPost
+				err = json.Unmarshal(rawPost, &p)
+				if err != nil {
+					return nil, err
+				}
+				files = append(files, File{
+					Path: fmt.Sprintf(
+						"%d_link.txt", p.Id),
+					Mtime: mtime,
+					FileFunc: func() (r io.ReadCloser, err error) {
+						return fakeCloser{strings.NewReader(p.Url)}, nil
+					},
+				})
+			case "quote":
+				var p quotePost
+				err = json.Unmarshal(rawPost, &p)
+				if err != nil {
+					return nil, err
+				}
+				files = append(files, File{
+					Path: fmt.Sprintf(
+						"%d_quote.txt", p.Id),
+					Mtime: mtime,
+					FileFunc: func() (r io.ReadCloser, err error) {
+						return fakeCloser{strings.NewReader(p.Text)}, nil
+					},
+				})
+
+			case "text":
+				var p textPost
+				err = json.Unmarshal(rawPost, &p)
+				if err != nil {
+					return nil, err
+				}
+				files = append(files, File{
+					Path: fmt.Sprintf(
+						"%d.md", p.Id),
+					Mtime: mtime,
+					FileFunc: func() (r io.ReadCloser, err error) {
+						return fakeCloser{strings.NewReader(p.Body)}, nil
+					},
+				})
 
 			case "video":
 				// println("video source: ", p.Source_url)
@@ -90,21 +133,6 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 					continue
 				}
 				files = append(files, f[0])
-
-			case "text":
-				var p textPost
-				err = json.Unmarshal(rawPost, &p)
-				if err != nil {
-					return nil, err
-				}
-				files = append(files, File{
-					Path: fmt.Sprintf(
-						"%d.md", i),
-					Mtime: mtime,
-					FileFunc: func() (r io.ReadCloser, err error) {
-						return fakeCloser{strings.NewReader(p.Body)}, nil
-					},
-				})
 
 			case "photo":
 				var p photoPost
