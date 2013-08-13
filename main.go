@@ -108,7 +108,7 @@ func (f File) ReadAll() (content []byte, err error) {
 	return ioutil.ReadAll(reader)
 }
 
-func registry() (find func(u *url.URL) remoteFunc, err error) {
+func registry() (find func(u *url.URL) asyncRemote, err error) {
 	const (
 		HOST = iota
 		PROTOCOL
@@ -117,13 +117,13 @@ func registry() (find func(u *url.URL) remoteFunc, err error) {
 	type item struct {
 		name string
 		kind int
-		f    remoteFunc
+		f    asyncRemote
 	}
 	items := []item{}
-	items = append(items, item{"elearning.hslu.ch", HOST, Ilias})
-	items = append(items, item{"tumblr.com", HOST, Tumblr})
-	items = append(items, item{"dav", PROTOCOL, Dav})
-	items = append(items, item{"davs", PROTOCOL, Dav})
+	items = append(items, item{"elearning.hslu.ch", HOST, asyncAdapter(Ilias)})
+	items = append(items, item{"tumblr.com", HOST, asyncAdapter(Tumblr)})
+	items = append(items, item{"dav", PROTOCOL, asyncAdapter(Dav)})
+	items = append(items, item{"davs", PROTOCOL, asyncAdapter(Dav)})
 
 	c := exec.Command("/usr/bin/env", "youtube-dl", "--extractor-descriptions")
 	output, err := c.CombinedOutput()
@@ -131,10 +131,10 @@ func registry() (find func(u *url.URL) remoteFunc, err error) {
 		return
 	}
 	for _, line := range strings.Split(string(output), "\n") {
-		items = append(items, item{strings.ToLower(line), NAME, YoutubeDl})
+		items = append(items, item{strings.ToLower(line), NAME, asyncAdapter(YoutubeDl)})
 	}
 
-	return func(u *url.URL) remoteFunc {
+	return func(u *url.URL) asyncRemote {
 		for _, item := range items {
 			switch item.kind {
 			case HOST:
@@ -169,12 +169,12 @@ func registry() (find func(u *url.URL) remoteFunc, err error) {
 // 	}
 // }
 
-func Sync(path string, fn remoteFunc, u url.URL,
+func Sync(path string, fn asyncRemote, u url.URL,
 	client *http.Client, user, pw string) (err error) {
 	errs := make(chan error)
 	files := make(chan File, 1)
 
-	go asyncAdapter(fn)(u, client, user, pw, files, errs)
+	go fn(u, client, user, pw, files, errs)
 
 	sync := make(chan bool, 5)
 	for {
