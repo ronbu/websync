@@ -77,7 +77,7 @@ func TestDav(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client := DefaultClient
+	client := http.DefaultClient
 	baseurl, _ := url.Parse(server.URL + "/a/b")
 	files, err := Dav(*baseurl, client, "u", "p")
 	if err != nil {

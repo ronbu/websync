@@ -1,12 +1,12 @@
 package main
 
 import (
-	"net/url"
-	"testing"
+// "net/url"
+// "testing"
 )
 
 var (
-	test *testing.T
+// test *testing.T
 )
 
 //TODO: Testing for tumblr

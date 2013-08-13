@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/mrjones/oauth"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +19,7 @@ import (
 
 const (
 	api           = "http://api.tumblr.com/v2"
-	apiBlog       = api + "/blog/%s.tumblr.com"
+	apiBlog       = api + "/blog/%s"
 	apiPhotoPosts = apiBlog + "/posts?api_key=%s&filter=raw&offset=%d"
 )
 
@@ -28,31 +31,118 @@ func (f fakeCloser) Close() (err error) {
 	return
 }
 
-func Tumblr(u url.URL, c *http.Client, _, key string) (
+func checkResponse(rc io.ReadCloser, resp interface{}) {
+	data, err := ioutil.ReadAll(rc)
+	check(err)
+	// println(string(data))
+	var cr completeResponse
+	err = json.Unmarshal(data, &cr)
+	if err != nil || cr.Meta.Status != 200 {
+		if cr.Meta.Msg != "" {
+			panic(errors.New(cr.Meta.Msg))
+		}
+	}
+	err = json.Unmarshal(cr.Response, &resp)
+	check(err)
+}
+
+func Tumblr(u url.URL, c *http.Client, key, secret string) (
 	files []File, err error) {
-	for i := int64(0); i < 60; i += 20 {
-		reqUrl := apiPhotoPosts
-		r, err := c.Get(fmt.Sprintf(reqUrl, u.Path[1:], key, i))
-		if err != nil {
-			return files, err
-		}
-
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return files, err
-		}
-		// println(string(r.Request.URL.String()))
-		// println(string(body))
-		var cr completeResponse
-		err = json.Unmarshal(body, &cr)
-		if err != nil {
-			if cr.Meta.Msg != "" {
-				err = errors.New(u.String() + ": " + cr.Meta.Msg)
+	if u.Path != "/" && u.Path != "" {
+		return getBlog(u.Path[1:], key, c)
+	} else {
+		cons := oauth.NewConsumer(key, secret, oauth.ServiceProvider{
+			RequestTokenUrl:   "http://www.tumblr.com/oauth/request_token",
+			AuthorizeTokenUrl: "https://www.tumblr.com/oauth/authorize",
+			AccessTokenUrl:    "https://www.tumblr.com/oauth/access_token",
+		})
+		// cons.Debug(true)
+		requestToken, userUri, err := cons.GetRequestTokenAndUrl("https://localhost")
+		check(err)
+		println(userUri)
+		tumbUri, _ := url.Parse("http://www.tumblr.com")
+		user, pass, err := keychainAuth(*tumbUri)
+		check(err)
+		verifier := OAuth(userUri, user, pass)
+		println(verifier)
+		token, err := cons.AuthorizeToken(requestToken, verifier)
+		check(err)
+		for i := 0; ; i += 20 {
+			resp, err := cons.Get("https://api.tumblr.com/v2/user/following",
+				map[string]string{"offset": strconv.Itoa(i)}, token)
+			check(err)
+			var fr followingResponse
+			checkResponse(resp.Body, &fr)
+			for _, b := range fr.Blogs {
+				bUri, err := url.Parse(b.Url)
+				check(err)
+				bfs, err := getBlog(bUri.Host, key, c)
+				check(err)
+				for _, bf := range bfs {
+					bf.Path = filepath.Join(bUri.Host, bf.Path)
+					files = append(files, bf)
+				}
 			}
+			if i >= fr.Total_blogs {
+				break
+			}
+		}
+		return files, err
+	}
+}
+
+func OAuth(uri, user, pass string) (redirect string) {
+	js := `var casper = require("casper").create({
+    // verbose: true,
+    // logLevel: "debug"
+});
+
+casper.start(casper.cli.args[0], function() {
+	// TODO: Transfer user and password through stdin
+	this.fill("form#signup_form",{
+		"user[email]":    casper.cli.args[1],
+		"user[password]": casper.cli.args[2]
+	}, true);
+});
+
+casper.then(function(){
+	this.mouseEvent('click', 'button[name=allow]')
+});
+
+casper.then(function(response){
+	console.log(response.url);
+});
+
+casper.run();`
+	base, rm := TempDir()
+	defer rm()
+	jspath := filepath.Join(base, "oauth.js")
+	err := ioutil.WriteFile(jspath, []byte(js), 0777)
+	check(err)
+	c := exec.Command("/usr/bin/env", "casperjs", jspath, uri, user, pass)
+	out, _ := c.CombinedOutput()
+	check(err)
+	u, err := url.Parse(string(out))
+	check(err)
+	verifier := u.Query().Get("oauth_verifier")
+	return verifier
+}
+
+func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
+	println("find:", blogname)
+	for i := int64(0); ; i += 20 {
+		reqUrl := apiPhotoPosts
+		u := fmt.Sprintf(reqUrl, blogname, key, i)
+		r, err := c.Get(u)
+		if err != nil {
 			return files, err
 		}
 
-		for _, rawPost := range cr.Response.Posts {
+		println(u)
+		var br blogResponse
+		checkResponse(r.Body, &br)
+
+		for _, rawPost := range br.Posts {
 			var p post
 			err = json.Unmarshal(rawPost, &p)
 			if err != nil {
@@ -150,16 +240,20 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 						FileFunc: func() (
 							r io.ReadCloser, err error) {
 							resp, err := c.Get(url)
-							return resp.Body, err
+							if err != nil {
+								return nil, err
+							} else {
+								return resp.Body, nil
+							}
 						},
 					})
 				}
 			default:
-				return nil, err
+				return nil, errors.New("Do not know this type")
 
 			}
 		}
-		if i > cr.Response.Blog.Posts {
+		if i > br.Blog.Posts {
 			break
 		}
 	}
@@ -168,7 +262,7 @@ func Tumblr(u url.URL, c *http.Client, _, key string) (
 
 type completeResponse struct {
 	Meta     meta
-	Response response
+	Response json.RawMessage
 }
 
 type meta struct {
@@ -176,7 +270,17 @@ type meta struct {
 	Msg    string
 }
 
-type response struct {
+type followingResponse struct {
+	Total_blogs int
+	Blogs       []followingBlog
+}
+
+type followingBlog struct {
+	Name, Url string
+	Updated   int
+}
+
+type blogResponse struct {
 	Blog  blog
 	Posts []json.RawMessage
 }

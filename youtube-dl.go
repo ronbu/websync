@@ -15,10 +15,7 @@ import (
 
 func YoutubeDl(u url.URL, c *http.Client, user, password string) (
 	files []File, err error) {
-	base, rmTmp, err := TempDir("websync-yt")
-	if err != nil {
-		return
-	}
+	base, rmTmp := TempDir()
 	defer rmTmp()
 
 	cmd := exec.Command("/usr/bin/env",
@@ -71,7 +68,7 @@ func YoutubeDl(u url.URL, c *http.Client, user, password string) (
 			Path:  info.Title + "." + info.Ext,
 			Mtime: mtime,
 			FileFunc: func() (r io.ReadCloser, err error) {
-				base, rmTmp, err := TempDir("websync-yt")
+				base, rmTmp := TempDir()
 				if err != nil {
 					return
 				}
@@ -98,23 +95,6 @@ func YoutubeDl(u url.URL, c *http.Client, user, password string) (
 	return
 }
 
-func TempDir(prefix string) (name string, stop func() error, err error) {
-	name, err = ioutil.TempDir("", prefix)
-	if err != nil {
-		return
-	}
-	name, err = filepath.EvalSymlinks(name)
-	if err != nil {
-		return
-	}
-	return name, func() error {
-		return os.RemoveAll(name)
-		// if err != nil {
-		// 	println("Error when removing temporary dir: ", err.Error())
-		// }
-	}, nil
-}
-
 type info struct {
 	Upload_date, Title, Id, Ext string
 }
@@ -126,3 +106,19 @@ type info struct {
 //   Player_url ,	Uploader_id ,	Subtitles string,
 //   Playlist_index int,
 // }
+
+func TempDir() (name string, stop func()) {
+	name, err := ioutil.TempDir("", "websync")
+	check(err)
+	name, err = filepath.EvalSymlinks(name)
+	check(err)
+	return name, func() {
+		check(os.RemoveAll(name))
+	}
+}
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
