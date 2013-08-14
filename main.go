@@ -114,7 +114,7 @@ func registry(hc *http.Client) (fun registryFn, err error) {
 	}
 	items := []item{}
 	items = append(items, item{"elearning.hslu.ch", HOST, asyncAdapter(Ilias)})
-	items = append(items, item{"tumblr.com", HOST, asyncAdapter(Tumblr)})
+	items = append(items, item{"tumblr.com", HOST, Tumblr})
 	items = append(items, item{"dav", PROTOCOL, asyncAdapter(Dav)})
 	items = append(items, item{"davs", PROTOCOL, asyncAdapter(Dav)})
 
@@ -129,28 +129,29 @@ func registry(hc *http.Client) (fun registryFn, err error) {
 
 	return func(f File) func(chan File, chan error) {
 		for _, item := range items {
-			var fn Remote
+			match := false
 			switch item.kind {
 			case HOST:
 				if strings.HasSuffix(f.Url.Host, item.name) {
-					fn = item.f
+					match = true
 				}
 			case PROTOCOL:
 				if f.Url.Scheme == item.name {
-					fn = item.f
+					match = true
 				}
 			case NAME:
 				if strings.Contains(f.Url.Host, item.name) {
-					fn = item.f
+					match = true
 				}
 			}
-			if fn != nil {
+			if match {
 				return func(files chan File, errs chan error) {
-					user, password, err := keychainAuth(*f.Url)
+					nameUri, _ := url.Parse("http://" + item.name)
+					user, password, err := keychainAuth(*nameUri)
 					if err != nil {
 						errs <- err
 					}
-					fn(f, hc, user, password, files, errs)
+					item.f(f, hc, user, password, files, errs)
 				}
 			}
 		}
@@ -195,6 +196,7 @@ func Sync(from, to string, lookup registryFn) (chan File, chan error) {
 			finish := make(chan bool)
 			go func(f chan bool) {
 				h(hfiles, errs)
+				println("fertig handler")
 				f <- true
 			}(finish)
 
@@ -288,7 +290,7 @@ func findHost(host string) (result string) {
 	ms := r.FindAllStringSubmatch(out, -1)
 	for _, m := range ms {
 		name := m[1]
-		// println(name)
+		// println(host, name)
 		if strings.HasSuffix(name, host) || strings.HasSuffix(host, name) {
 			// println(name)
 			return name
