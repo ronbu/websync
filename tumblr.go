@@ -52,7 +52,7 @@ func Tumblr(f File, c *http.Client, user, pass string,
 	key, secret, err := keychainAuth(*tumbUri)
 	check(err)
 	if f.Url.Host != "tumblr.com" {
-		getBlog(f.Url.Host, key, c, files, errs)
+		getBlog(f, key, c, files, errs)
 	} else {
 		cons := oauth.NewConsumer(key, secret, oauth.ServiceProvider{
 			RequestTokenUrl:   "http://www.tumblr.com/oauth/request_token",
@@ -76,7 +76,8 @@ func Tumblr(f File, c *http.Client, user, pass string,
 			for _, b := range fr.Blogs {
 				bUri, err := url.Parse(b.Url)
 				check(err)
-				getBlog(bUri.Host, key, c, files, errs)
+				bUri.Path = bUri.Host
+				files <- File{Url: bUri}
 			}
 			if i >= fr.Total_blogs {
 				break
@@ -122,12 +123,12 @@ casper.run();`
 	return verifier
 }
 
-func getBlog(blogname, key string, c *http.Client,
+func getBlog(fl File, key string, c *http.Client,
 	files chan File, errs chan error) {
 
 	for i := int64(0); ; i += 20 {
 		reqUrl := apiPhotoPosts
-		u := fmt.Sprintf(reqUrl, blogname, key, i)
+		u := fmt.Sprintf(reqUrl, fl.Url.Host, key, i)
 		r, err := c.Get(u)
 		if err != nil {
 			errs <- err
@@ -150,7 +151,7 @@ func getBlog(blogname, key string, c *http.Client,
 
 			//store metadata
 			files <- File{
-				Url:   &url.URL{Path: fmt.Sprintf(".%s.json", fileName)},
+				Url:   &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(".%s.json", fileName)},
 				Mtime: mtime,
 				FileFunc: func() (r io.ReadCloser, err error) {
 					b, err := json.MarshalIndent(p, "", "\t")
@@ -174,7 +175,7 @@ func getBlog(blogname, key string, c *http.Client,
 					return
 				}
 				files <- File{
-					Url: &url.URL{Path: fmt.Sprintf(
+					Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
 						"%d_link.txt", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
@@ -189,7 +190,7 @@ func getBlog(blogname, key string, c *http.Client,
 					return
 				}
 				files <- File{
-					Url: &url.URL{Path: fmt.Sprintf(
+					Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
 						"%d_quote.txt", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
@@ -205,7 +206,7 @@ func getBlog(blogname, key string, c *http.Client,
 					return
 				}
 				files <- File{
-					Url: &url.URL{Path: fmt.Sprintf(
+					Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
 						"%d.md", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
@@ -218,7 +219,7 @@ func getBlog(blogname, key string, c *http.Client,
 				// println("post url: ", p.Post_url)
 				u, _ := url.Parse(p.Source_url)
 				files <- File{Url: u}
-
+				continue
 			case "photo":
 				var p photoPost
 				err = json.Unmarshal(rawPost, &p)
@@ -230,7 +231,7 @@ func getBlog(blogname, key string, c *http.Client,
 				for i, photo := range p.Photos {
 					uri := photo.Alt_sizes[0].Url
 					files <- File{
-						Url: &url.URL{Path: fmt.Sprintf(
+						Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
 							"%s-%d.%s", fileName, i, uri[len(uri)-3:])},
 						Mtime: mtime,
 						FileFunc: func() (
@@ -244,6 +245,7 @@ func getBlog(blogname, key string, c *http.Client,
 						},
 					}
 				}
+				continue
 			default:
 				errs <- errors.New("Do not know this type")
 				return

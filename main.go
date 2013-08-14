@@ -185,7 +185,9 @@ func Sync(from, to string, lookup registryFn) (chan File, chan error) {
 
 	go func() {
 		todos := []File{File{Url: fromUri}}
-		for _, todo := range todos {
+		for i := 0; i < len(todos); i++ {
+			todo := todos[i]
+
 			h := lookup(todo)
 			if h == nil {
 				errs <- errors.New("Cannot Sync: " + todo.Url.String())
@@ -196,7 +198,6 @@ func Sync(from, to string, lookup registryFn) (chan File, chan error) {
 			finish := make(chan bool)
 			go func(f chan bool) {
 				h(hfiles, errs)
-				println("fertig handler")
 				f <- true
 			}(finish)
 
@@ -204,6 +205,7 @@ func Sync(from, to string, lookup registryFn) (chan File, chan error) {
 			for {
 				select {
 				case <-finish:
+					println("finish")
 					break LOOP
 				case f := <-hfiles:
 					if f.FileFunc == nil {
@@ -220,6 +222,8 @@ func Sync(from, to string, lookup registryFn) (chan File, chan error) {
 				}
 			}
 		}
+		close(files)
+		close(errs)
 	}()
 	return files, errs
 }
