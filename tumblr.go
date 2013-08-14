@@ -162,7 +162,6 @@ func getBlog(fl File, key string, c *http.Client,
 					return fakeCloser{bytes.NewReader(b)}, err
 				},
 			}
-
 			switch p.PostType {
 			case "answer", "audio", "chat":
 				//not implemented
@@ -217,8 +216,9 @@ func getBlog(fl File, key string, c *http.Client,
 			case "video":
 				// println("video source: ", p.Source_url)
 				// println("post url: ", p.Post_url)
-				u, _ := url.Parse(p.Source_url)
-				files <- File{Url: u}
+				// TODO: Fix
+				// u, _ := url.Parse(p.)
+				// files <- File{Url: u}
 				continue
 			case "photo":
 				var p photoPost
@@ -252,7 +252,7 @@ func getBlog(fl File, key string, c *http.Client,
 
 			}
 		}
-		if i > br.Blog.Posts {
+		if i >= br.Blog.Posts {
 			break
 		}
 	}

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -33,7 +32,6 @@ func Local(file File) (err error) {
 		os.Chtimes(file.Url.Path, file.Mtime, file.Mtime)
 
 		osfile.Sync()
-		fmt.Println(file.Url.Path)
 	}
 	return
 }

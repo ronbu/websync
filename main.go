@@ -57,7 +57,10 @@ Error:
 	files, errs := Sync(url, path, lookup)
 	for {
 		select {
-		case f := <-files:
+		case f, ok := <-files:
+			if !ok {
+				return
+			}
 			println(f.Url.Path)
 		case e := <-errs:
 			fmt.Fprintln(os.Stderr, e)
