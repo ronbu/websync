@@ -205,7 +205,6 @@ func Sync(from, to string, lookup registryFn) (chan File, chan error) {
 			for {
 				select {
 				case <-finish:
-					println("finish")
 					break LOOP
 				case f := <-hfiles:
 					if f.FileFunc == nil {
