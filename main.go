@@ -40,53 +40,39 @@ Error:
 		err = errors.New("Wrong number of Arguments")
 		goto Error
 	}
-	u, err := url.Parse(flag.Args()[0])
-	if err != nil {
-		goto Error
-	}
-	lookup, err := registry()
-	if err != nil {
-		goto Error
-	}
-	fn := lookup(u)
-	if fn == nil {
-		err = errors.New("Unknown URL")
-		goto Error
-	}
-	path := flag.Args()[1]
-	if _, err = os.Stat(path); err != nil {
-		goto Error
-	}
-	user, pw, err := keychainAuth(*u)
-	if err != nil {
-		println("security: ", err.Error())
-	}
 	cj, err := cookiejar.New(nil)
 	if err != nil {
 		goto Error
 	}
 	c := &http.Client{Jar: cj}
-	if err = Sync(path, fn, *u, c, user, pw); err != nil {
+	lookup, err := registry(c)
+	if err != nil {
 		goto Error
+	}
+	path := flag.Args()[1]
+	url := flag.Args()[0]
+	if _, err = os.Stat(path); err != nil {
+		goto Error
+	}
+	files, errs := Sync(url, path, lookup)
+	for {
+		select {
+		case f := <-files:
+			println(f.Url.Path)
+		case e := <-errs:
+			fmt.Fprintln(os.Stderr, e)
+		}
 	}
 }
 
-type remoteFunc func(u url.URL, c *http.Client, user, pw string) ([]File, error)
-type asyncRemote func(u url.URL, c *http.Client, user, pw string,
-	files chan File, errs chan error)
-type fileFunc func() (reader io.ReadCloser, err error)
+type Remote func(File, *http.Client, string, string, chan File, chan error)
+type legacyRemote func(u url.URL, c *http.Client, user, pw string) ([]File, error)
 
-type File struct {
-	Url      *url.URL
-	Mtime    time.Time
-	FileFunc fileFunc
-}
-
-func asyncAdapter(f remoteFunc) asyncRemote {
-	return func(u url.URL, c *http.Client, user, pw string,
+func asyncAdapter(f legacyRemote) Remote {
+	return func(fl File, c *http.Client, user, pw string,
 		files chan File, errs chan error) {
 
-		fs, err := f(u, c, user, pw)
+		fs, err := f(*fl.Url, c, user, pw)
 		if err != nil {
 			errs <- err
 		} else {
@@ -94,10 +80,14 @@ func asyncAdapter(f remoteFunc) asyncRemote {
 				files <- f
 			}
 		}
-		close(errs)
-		close(files)
 		return
 	}
+}
+
+type File struct {
+	Url      *url.URL
+	Mtime    time.Time
+	FileFunc func() (reader io.ReadCloser, err error)
 }
 
 func (f File) ReadAll() (content []byte, err error) {
@@ -108,7 +98,10 @@ func (f File) ReadAll() (content []byte, err error) {
 	return ioutil.ReadAll(reader)
 }
 
-func registry() (find func(u *url.URL) asyncRemote, err error) {
+type registryFn func(f File) func(chan File, chan error)
+
+func registry(hc *http.Client) (fun registryFn, err error) {
+
 	const (
 		HOST = iota
 		PROTOCOL
@@ -117,7 +110,7 @@ func registry() (find func(u *url.URL) asyncRemote, err error) {
 	type item struct {
 		name string
 		kind int
-		f    asyncRemote
+		f    Remote
 	}
 	items := []item{}
 	items = append(items, item{"elearning.hslu.ch", HOST, asyncAdapter(Ilias)})
@@ -134,20 +127,30 @@ func registry() (find func(u *url.URL) asyncRemote, err error) {
 		items = append(items, item{strings.ToLower(line), NAME, asyncAdapter(YoutubeDl)})
 	}
 
-	return func(u *url.URL) asyncRemote {
+	return func(f File) func(chan File, chan error) {
 		for _, item := range items {
+			var fn Remote
 			switch item.kind {
 			case HOST:
-				if strings.HasSuffix(u.Host, item.name) {
-					return item.f
+				if strings.HasSuffix(f.Url.Host, item.name) {
+					fn = item.f
 				}
 			case PROTOCOL:
-				if u.Scheme == item.name {
-					return item.f
+				if f.Url.Scheme == item.name {
+					fn = item.f
 				}
 			case NAME:
-				if strings.Contains(u.Host, item.name) {
-					return item.f
+				if strings.Contains(f.Url.Host, item.name) {
+					fn = item.f
+				}
+			}
+			if fn != nil {
+				return func(files chan File, errs chan error) {
+					user, password, err := keychainAuth(*f.Url)
+					if err != nil {
+						errs <- err
+					}
+					fn(f, hc, user, password, files, errs)
 				}
 			}
 		}
@@ -169,34 +172,54 @@ func registry() (find func(u *url.URL) asyncRemote, err error) {
 // 	}
 // }
 
-func Sync(path string, fn asyncRemote, u url.URL,
-	client *http.Client, user, pw string) (err error) {
+func Sync(from, to string, lookup registryFn) (chan File, chan error) {
+	files := make(chan File)
 	errs := make(chan error)
-	files := make(chan File, 1)
 
-	go fn(u, client, user, pw, files, errs)
-
-	sync := make(chan bool, 5)
-	for {
-		select {
-		case f, ok := <-files:
-			if !ok {
-				return
-			}
-			sync <- true
-			go func() {
-				f.Url.Path = filepath.Join(path, f.Url.Path)
-				err = Local(f)
-				if err != nil {
-					return
-				}
-				<-sync
-			}()
-		case err = <-errs:
-			return
-		}
+	fromUri, err := url.Parse(from)
+	if err != nil {
+		errs <- err
+		return nil, errs
 	}
-	return
+
+	go func() {
+		todos := []File{File{Url: fromUri}}
+		for _, todo := range todos {
+			h := lookup(todo)
+			if h == nil {
+				errs <- errors.New("Cannot Sync: " + todo.Url.String())
+				continue
+			}
+
+			hfiles := make(chan File)
+			finish := make(chan bool)
+			go func(f chan bool) {
+				h(hfiles, errs)
+				f <- true
+			}(finish)
+
+		LOOP:
+			for {
+				select {
+				case <-finish:
+					break LOOP
+				case f := <-hfiles:
+					if f.FileFunc == nil {
+						todos = append(todos, f)
+					} else {
+						f.Url.Path = filepath.Join(to, f.Url.Path)
+						err = Local(f)
+						if err != nil {
+							errs <- err
+						} else {
+							files <- f
+						}
+					}
+				}
+			}
+		}
+	}()
+	return files, errs
 }
 
 func StripPassword(url url.URL) url.URL {

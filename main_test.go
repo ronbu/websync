@@ -21,7 +21,7 @@ func NewTestFs(files []File) (res testFS) {
 
 type handlerAndlistFunc struct {
 	handler  func(testFS, *testing.T) http.Handler
-	listFunc remoteFunc
+	listFunc legacyRemote
 }
 
 type FakeReadCloser struct {
