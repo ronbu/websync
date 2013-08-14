@@ -2,6 +2,7 @@ package main
 
 import (
 	"io/ioutil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,7 +45,7 @@ func TestLocal(t *testing.T) {
 		defer rm()
 
 		for _, file := range append(fss[0], fss[1]...) {
-			file.Path = filepath.Join(base, file.Path)
+			file.Url.Path = filepath.Join(base, file.Url.Path)
 			err := Local(file)
 			if err != nil {
 				t.Fatal(err)
@@ -83,7 +84,7 @@ func LocalTestFs(basepath string) (files []File, err error) {
 			}
 			files = append(files,
 				File{
-					Path:     path[len(basepath):],
+					Url:      &url.URL{Path: path[len(basepath):]},
 					Mtime:    info.ModTime(),
 					FileFunc: NewFake(string(content)),
 				})

@@ -89,10 +89,10 @@ func TestDav(t *testing.T) {
 	e2url := *baseurl
 	e2url.Path += "/c/d"
 	e2 := File{
-		Path:  "/c/d",
+		Url:   &url.URL{Path: "/c/d"},
 		Mtime: time.Date(2012, 3, 29, 20, 38, 59, 0, location),
 	}
-	if r2.Path != e2.Path || !r2.Mtime.Equal(e2.Mtime) {
+	if r2.Url.Path != e2.Url.Path || !r2.Mtime.Equal(e2.Mtime) {
 		t.Fatal(r2)
 	}
 }

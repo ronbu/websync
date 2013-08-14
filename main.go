@@ -77,7 +77,7 @@ type asyncRemote func(u url.URL, c *http.Client, user, pw string,
 type fileFunc func() (reader io.ReadCloser, err error)
 
 type File struct {
-	Path     string
+	Url      *url.URL
 	Mtime    time.Time
 	FileFunc fileFunc
 }
@@ -185,7 +185,7 @@ func Sync(path string, fn asyncRemote, u url.URL,
 			}
 			sync <- true
 			go func() {
-				f.Path = filepath.Join(path, f.Path)
+				f.Url.Path = filepath.Join(path, f.Url.Path)
 				err = Local(f)
 				if err != nil {
 					return

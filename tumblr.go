@@ -79,7 +79,7 @@ func Tumblr(u url.URL, c *http.Client, key, secret string) (
 				bfs, err := getBlog(bUri.Host, key, c)
 				check(err)
 				for _, bf := range bfs {
-					bf.Path = filepath.Join(bUri.Host, bf.Path)
+					bf.Url.Path = filepath.Join(bUri.Host, bf.Url.Path)
 					files = append(files, bf)
 				}
 			}
@@ -154,7 +154,7 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 
 			//store metadata
 			files = append(files, File{
-				Path:  fmt.Sprintf(".%s.json", fileName),
+				Url:   &url.URL{Path: fmt.Sprintf(".%s.json", fileName)},
 				Mtime: mtime,
 				FileFunc: func() (r io.ReadCloser, err error) {
 					b, err := json.MarshalIndent(p, "", "\t")
@@ -177,8 +177,8 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 					return nil, err
 				}
 				files = append(files, File{
-					Path: fmt.Sprintf(
-						"%d_link.txt", p.Id),
+					Url: &url.URL{Path: fmt.Sprintf(
+						"%d_link.txt", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
 						return fakeCloser{strings.NewReader(p.Url)}, nil
@@ -191,8 +191,8 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 					return nil, err
 				}
 				files = append(files, File{
-					Path: fmt.Sprintf(
-						"%d_quote.txt", p.Id),
+					Url: &url.URL{Path: fmt.Sprintf(
+						"%d_quote.txt", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
 						return fakeCloser{strings.NewReader(p.Text)}, nil
@@ -206,8 +206,8 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 					return nil, err
 				}
 				files = append(files, File{
-					Path: fmt.Sprintf(
-						"%d.md", p.Id),
+					Url: &url.URL{Path: fmt.Sprintf(
+						"%d.md", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
 						return fakeCloser{strings.NewReader(p.Body)}, nil
@@ -232,14 +232,14 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 				}
 
 				for i, photo := range p.Photos {
-					url := photo.Alt_sizes[0].Url
+					uri := photo.Alt_sizes[0].Url
 					files = append(files, File{
-						Path: fmt.Sprintf(
-							"%s-%d.%s", fileName, i, url[len(url)-3:]),
+						Url: &url.URL{Path: fmt.Sprintf(
+							"%s-%d.%s", fileName, i, uri[len(uri)-3:])},
 						Mtime: mtime,
 						FileFunc: func() (
 							r io.ReadCloser, err error) {
-							resp, err := c.Get(url)
+							resp, err := c.Get(uri)
 							if err != nil {
 								return nil, err
 							} else {

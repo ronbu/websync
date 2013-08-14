@@ -34,7 +34,7 @@ func Ilias(uri url.URL, c *http.Client, user, pw string) (fs []File, err error) 
 			return
 		}
 		for _, file := range davFs {
-			file.Path = path.Join("/"+name, file.Path)
+			file.Url.Path = path.Join("/"+name, file.Url.Path)
 			fs = append(fs, file)
 		}
 	}

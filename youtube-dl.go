@@ -65,7 +65,7 @@ func YoutubeDl(u url.URL, c *http.Client, user, password string) (
 		mtime := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 
 		files = append(files, File{
-			Path:  info.Title + "." + info.Ext,
+			Url:   &url.URL{Path: info.Title + "." + info.Ext},
 			Mtime: mtime,
 			FileFunc: func() (r io.ReadCloser, err error) {
 				base, rmTmp := TempDir()

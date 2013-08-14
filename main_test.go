@@ -14,7 +14,7 @@ type testFS map[string]File
 func NewTestFs(files []File) (res testFS) {
 	res = make(testFS)
 	for _, file := range files {
-		res[file.Path] = file
+		res[file.Url.Path] = file
 	}
 	return
 }
