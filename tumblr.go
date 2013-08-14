@@ -46,10 +46,13 @@ func checkResponse(rc io.ReadCloser, resp interface{}) {
 	check(err)
 }
 
-func Tumblr(u url.URL, c *http.Client, key, secret string) (
-	files []File, err error) {
-	if u.Path != "/" && u.Path != "" {
-		return getBlog(u.Path[1:], key, c)
+func Tumblr(f File, c *http.Client, user, pass string,
+	files chan File, errs chan error) {
+	tumbUri, _ := url.Parse("http://api.tumblr.com")
+	key, secret, err := keychainAuth(*tumbUri)
+	check(err)
+	if f.Url.Host != "tumblr.com" {
+		getBlog(f.Url.Host, key, c, files, errs)
 	} else {
 		cons := oauth.NewConsumer(key, secret, oauth.ServiceProvider{
 			RequestTokenUrl:   "http://www.tumblr.com/oauth/request_token",
@@ -59,12 +62,9 @@ func Tumblr(u url.URL, c *http.Client, key, secret string) (
 		// cons.Debug(true)
 		requestToken, userUri, err := cons.GetRequestTokenAndUrl("https://localhost")
 		check(err)
-		println(userUri)
-		tumbUri, _ := url.Parse("http://www.tumblr.com")
-		user, pass, err := keychainAuth(*tumbUri)
-		check(err)
+		// println(userUri)
 		verifier := OAuth(userUri, user, pass)
-		println(verifier)
+		// println(verifier)
 		token, err := cons.AuthorizeToken(requestToken, verifier)
 		check(err)
 		for i := 0; ; i += 20 {
@@ -76,18 +76,12 @@ func Tumblr(u url.URL, c *http.Client, key, secret string) (
 			for _, b := range fr.Blogs {
 				bUri, err := url.Parse(b.Url)
 				check(err)
-				bfs, err := getBlog(bUri.Host, key, c)
-				check(err)
-				for _, bf := range bfs {
-					bf.Url.Path = filepath.Join(bUri.Host, bf.Url.Path)
-					files = append(files, bf)
-				}
+				getBlog(bUri.Host, key, c, files, errs)
 			}
 			if i >= fr.Total_blogs {
 				break
 			}
 		}
-		return files, err
 	}
 }
 
@@ -128,17 +122,18 @@ casper.run();`
 	return verifier
 }
 
-func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
-	println("find:", blogname)
+func getBlog(blogname, key string, c *http.Client,
+	files chan File, errs chan error) {
+
 	for i := int64(0); ; i += 20 {
 		reqUrl := apiPhotoPosts
 		u := fmt.Sprintf(reqUrl, blogname, key, i)
 		r, err := c.Get(u)
 		if err != nil {
-			return files, err
+			errs <- err
+			return
 		}
 
-		println(u)
 		var br blogResponse
 		checkResponse(r.Body, &br)
 
@@ -146,14 +141,15 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 			var p post
 			err = json.Unmarshal(rawPost, &p)
 			if err != nil {
-				return nil, err
+				errs <- err
+				return
 			}
 
 			fileName := strconv.FormatInt(p.Id, 10)
 			mtime := time.Unix(p.Timestamp, 0)
 
 			//store metadata
-			files = append(files, File{
+			files <- File{
 				Url:   &url.URL{Path: fmt.Sprintf(".%s.json", fileName)},
 				Mtime: mtime,
 				FileFunc: func() (r io.ReadCloser, err error) {
@@ -164,7 +160,7 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 					// println(string(b))
 					return fakeCloser{bytes.NewReader(b)}, err
 				},
-			})
+			}
 
 			switch p.PostType {
 			case "answer", "audio", "chat":
@@ -174,66 +170,66 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 				var p linkPost
 				err = json.Unmarshal(rawPost, &p)
 				if err != nil {
-					return nil, err
+					errs <- err
+					return
 				}
-				files = append(files, File{
+				files <- File{
 					Url: &url.URL{Path: fmt.Sprintf(
 						"%d_link.txt", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
 						return fakeCloser{strings.NewReader(p.Url)}, nil
 					},
-				})
+				}
 			case "quote":
 				var p quotePost
 				err = json.Unmarshal(rawPost, &p)
 				if err != nil {
-					return nil, err
+					errs <- err
+					return
 				}
-				files = append(files, File{
+				files <- File{
 					Url: &url.URL{Path: fmt.Sprintf(
 						"%d_quote.txt", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
 						return fakeCloser{strings.NewReader(p.Text)}, nil
 					},
-				})
+				}
 
 			case "text":
 				var p textPost
 				err = json.Unmarshal(rawPost, &p)
 				if err != nil {
-					return nil, err
+					errs <- err
+					return
 				}
-				files = append(files, File{
+				files <- File{
 					Url: &url.URL{Path: fmt.Sprintf(
 						"%d.md", p.Id)},
 					Mtime: mtime,
 					FileFunc: func() (r io.ReadCloser, err error) {
 						return fakeCloser{strings.NewReader(p.Body)}, nil
 					},
-				})
+				}
 
 			case "video":
 				// println("video source: ", p.Source_url)
 				// println("post url: ", p.Post_url)
 				u, _ := url.Parse(p.Source_url)
-				f, err := YoutubeDl(*u, c, "", "")
-				if err != nil || len(f) != 1 {
-					continue
-				}
-				files = append(files, f[0])
+				files <- File{Url: u}
 
 			case "photo":
 				var p photoPost
 				err = json.Unmarshal(rawPost, &p)
 				if err != nil {
-					return nil, err
+					errs <- err
+					return
 				}
 
 				for i, photo := range p.Photos {
 					uri := photo.Alt_sizes[0].Url
-					files = append(files, File{
+					files <- File{
 						Url: &url.URL{Path: fmt.Sprintf(
 							"%s-%d.%s", fileName, i, uri[len(uri)-3:])},
 						Mtime: mtime,
@@ -246,10 +242,11 @@ func getBlog(blogname, key string, c *http.Client) (files []File, err error) {
 								return resp.Body, nil
 							}
 						},
-					})
+					}
 				}
 			default:
-				return nil, errors.New("Do not know this type")
+				errs <- errors.New("Do not know this type")
+				return
 
 			}
 		}

@@ -291,7 +291,7 @@ func findHost(host string) (result string) {
 	for _, m := range ms {
 		name := m[1]
 		// println(host, name)
-		if strings.HasSuffix(name, host) || strings.HasSuffix(host, name) {
+		if name == host || name == "www."+host {
 			// println(name)
 			return name
 		}
