@@ -10,8 +10,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -24,14 +22,6 @@ const (
 	apiBlog      = apiVersion + "blog/%s"
 	apiPosts     = apiBlog + "/posts?api_key=%s&filter=raw&offset=%d"
 )
-
-type fakeCloser struct {
-	io.Reader
-}
-
-func (f fakeCloser) Close() (err error) {
-	return
-}
 
 func checkResponse(rc io.ReadCloser, resp interface{}) {
 	data, err := ioutil.ReadAll(rc)
@@ -49,28 +39,6 @@ func checkResponse(rc io.ReadCloser, resp interface{}) {
 		println(string(cr.Response))
 	}
 	check(err)
-}
-
-func handleOauth() (token *oauth.AccessToken, err error) {
-	tumbUri, _ := url.Parse("http://tumblr.com")
-	user, pass, err := keychainAuth(*tumbUri)
-	tumbApi, _ := url.Parse("http://api.tumblr.com")
-	key, secret, err := keychainAuth(*tumbApi)
-	check(err)
-	cons := oauth.NewConsumer(key, secret, oauth.ServiceProvider{
-		RequestTokenUrl:   "http://www.tumblr.com/oauth/request_token",
-		AuthorizeTokenUrl: "https://www.tumblr.com/oauth/authorize",
-		AccessTokenUrl:    "https://www.tumblr.com/oauth/access_token",
-	})
-	// cons.Debug(true)
-	requestToken, userUri, err := cons.GetRequestTokenAndUrl("https://localhost")
-	check(err)
-	// println(userUri)
-	verifier := OAuth(userUri, user, pass)
-	// println(verifier)
-	token, err = cons.AuthorizeToken(requestToken, verifier)
-	check(err)
-	return
 }
 
 func Tumblr(f File, c *http.Client, token, secret string,
@@ -97,43 +65,6 @@ func Tumblr(f File, c *http.Client, token, secret string,
 			}
 		}
 	}
-}
-
-func OAuth(uri, user, pass string) (redirect string) {
-	js := `var casper = require("casper").create({
-    // verbose: true,
-    // logLevel: "debug"
-});
-
-casper.start(casper.cli.args[0], function() {
-	// TODO: Transfer user and password through stdin
-	this.fill("form#signup_form",{
-		"user[email]":    casper.cli.args[1],
-		"user[password]": casper.cli.args[2]
-	}, true);
-});
-
-casper.then(function(){
-	this.mouseEvent('click', 'button[name=allow]')
-});
-
-casper.then(function(response){
-	console.log(response.url);
-});
-
-casper.run();`
-	base, rm := TempDir()
-	defer rm()
-	jspath := filepath.Join(base, "oauth.js")
-	err := ioutil.WriteFile(jspath, []byte(js), 0777)
-	check(err)
-	c := exec.Command("/usr/bin/env", "casperjs", jspath, uri, user, pass)
-	out, _ := c.CombinedOutput()
-	check(err)
-	u, err := url.Parse(string(out))
-	check(err)
-	verifier := u.Query().Get("oauth_verifier")
-	return verifier
 }
 
 func getBlog(fl File, key *oauth.AccessToken, c *http.Client,
@@ -269,6 +200,14 @@ func getBlog(fl File, key *oauth.AccessToken, c *http.Client,
 			break
 		}
 	}
+	return
+}
+
+type fakeCloser struct {
+	io.Reader
+}
+
+func (f fakeCloser) Close() (err error) {
 	return
 }
 
