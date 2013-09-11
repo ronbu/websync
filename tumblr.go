@@ -16,12 +16,49 @@ import (
 )
 
 const (
-	api          = "https://api.tumblr.com"
 	apiVersion   = "/v2/"
 	apiFollowing = apiVersion + "user/following"
 	apiBlog      = apiVersion + "blog/%s"
 	apiPosts     = apiBlog + "/posts?api_key=%s&filter=raw&offset=%d"
 )
+
+type tumblr struct {
+	DefaultHandler
+}
+
+func NewTumblr(c *http.Client, a *Auth) Handler {
+	return &tumblr{DefaultHandler{c, a}}
+}
+
+func (t *tumblr) Url(u *url.URL) (r *url.URL, exact bool, err error) {
+	return u, false, nil
+}
+func (t *tumblr) Files(f File, files chan File, errs chan error) {
+	token, secret, err := t.OAuth(f.Url)
+	check(err)
+	tok := &oauth.AccessToken{token, secret}
+	cons := oauth.Consumer{HttpClient: t.Client}
+	if f.Url.Path != "/" {
+		getBlog(f, tok, t.Client, files, errs)
+	} else {
+		for i := 0; ; i += 20 {
+			resp, err := cons.Get(f.Url.String()+apiFollowing,
+				map[string]string{"offset": strconv.Itoa(i)}, tok)
+			check(err)
+			var fr followingResponse
+			checkResponse(resp.Body, &fr)
+			for _, b := range fr.Blogs {
+				bUri, err := url.Parse(b.Url)
+				check(err)
+				bUri.Path = bUri.Host
+				files <- File{Url: bUri}
+			}
+			if i >= fr.Total_blogs {
+				break
+			}
+		}
+	}
+}
 
 func checkResponse(rc io.ReadCloser, resp interface{}) {
 	data, err := ioutil.ReadAll(rc)
@@ -41,38 +78,13 @@ func checkResponse(rc io.ReadCloser, resp interface{}) {
 	check(err)
 }
 
-func Tumblr(f File, c *http.Client, token, secret string,
-	files chan File, errs chan error) {
-	tok := &oauth.AccessToken{token, secret}
-	cons := oauth.Consumer{HttpClient: c}
-	if f.Url.Host != "tumblr.com" {
-		getBlog(f, tok, c, files, errs)
-	} else {
-		for i := 0; ; i += 20 {
-			resp, err := cons.Get(apiFollowing,
-				map[string]string{"offset": strconv.Itoa(i)}, tok)
-			check(err)
-			var fr followingResponse
-			checkResponse(resp.Body, &fr)
-			for _, b := range fr.Blogs {
-				bUri, err := url.Parse(b.Url)
-				check(err)
-				bUri.Path = bUri.Host
-				files <- File{Url: bUri}
-			}
-			if i >= fr.Total_blogs {
-				break
-			}
-		}
-	}
-}
-
 func getBlog(fl File, key *oauth.AccessToken, c *http.Client,
 	files chan File, errs chan error) {
 
 	for i := int64(0); ; i += 20 {
-		reqUrl := apiPosts
-		u := fmt.Sprintf(reqUrl, fl.Url.Host, key.Token, i)
+		thost := fl.Url.Path[1:]
+		fl.Url.Path = ""
+		u := fmt.Sprintf(fl.Url.String()+apiPosts, thost, key.Token, i)
 		r, err := c.Get(u)
 		if err != nil {
 			errs <- err

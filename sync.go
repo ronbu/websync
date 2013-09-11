@@ -24,7 +24,7 @@ func (f File) ReadAll() (content []byte, err error) {
 	return ioutil.ReadAll(reader)
 }
 
-func Sync(from, to string, lookup registryFn) (chan File, chan error) {
+func Sync(from, to string, lookup RegistryFn) (chan File, chan error) {
 	files := make(chan File)
 	errs := make(chan error)
 
@@ -48,7 +48,7 @@ func Sync(from, to string, lookup registryFn) (chan File, chan error) {
 			hfiles := make(chan File)
 			finish := make(chan bool)
 			go func(f chan bool) {
-				h(hfiles, errs)
+				h.Files(todo, hfiles, errs)
 				f <- true
 			}(finish)
 

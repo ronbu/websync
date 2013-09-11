@@ -12,6 +12,17 @@ import (
 	"strings"
 )
 
+type Auth struct{}
+
+func (a *Auth) Keychain(u *url.URL) (user, pw string, err error) {
+	return keychainAuth(*u)
+}
+
+func (a *Auth) OAuth(u *url.URL) (token, secret string, err error) {
+	tok, err := handleOauth()
+	return tok.Token, tok.Secret, err
+}
+
 func StripPassword(url url.URL) url.URL {
 	url.User = nil
 	return url
