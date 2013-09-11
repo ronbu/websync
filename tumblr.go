@@ -18,9 +18,11 @@ import (
 )
 
 const (
-	api           = "http://api.tumblr.com/v2"
-	apiBlog       = api + "/blog/%s"
-	apiPhotoPosts = apiBlog + "/posts?api_key=%s&filter=raw&offset=%d"
+	api          = "https://api.tumblr.com"
+	apiVersion   = "/v2/"
+	apiFollowing = apiVersion + "user/following"
+	apiBlog      = apiVersion + "blog/%s"
+	apiPosts     = apiBlog + "/posts?api_key=%s&filter=raw&offset=%d"
 )
 
 type fakeCloser struct {
@@ -43,33 +45,44 @@ func checkResponse(rc io.ReadCloser, resp interface{}) {
 		}
 	}
 	err = json.Unmarshal(cr.Response, &resp)
+	if err != nil {
+		println(string(cr.Response))
+	}
 	check(err)
 }
 
-func Tumblr(f File, c *http.Client, user, pass string,
-	files chan File, errs chan error) {
-	tumbUri, _ := url.Parse("http://api.tumblr.com")
-	key, secret, err := keychainAuth(*tumbUri)
+func handleOauth() (token *oauth.AccessToken, err error) {
+	tumbUri, _ := url.Parse("http://tumblr.com")
+	user, pass, err := keychainAuth(*tumbUri)
+	tumbApi, _ := url.Parse("http://api.tumblr.com")
+	key, secret, err := keychainAuth(*tumbApi)
 	check(err)
+	cons := oauth.NewConsumer(key, secret, oauth.ServiceProvider{
+		RequestTokenUrl:   "http://www.tumblr.com/oauth/request_token",
+		AuthorizeTokenUrl: "https://www.tumblr.com/oauth/authorize",
+		AccessTokenUrl:    "https://www.tumblr.com/oauth/access_token",
+	})
+	// cons.Debug(true)
+	requestToken, userUri, err := cons.GetRequestTokenAndUrl("https://localhost")
+	check(err)
+	// println(userUri)
+	verifier := OAuth(userUri, user, pass)
+	// println(verifier)
+	token, err = cons.AuthorizeToken(requestToken, verifier)
+	check(err)
+	return
+}
+
+func Tumblr(f File, c *http.Client, token, secret string,
+	files chan File, errs chan error) {
+	tok := &oauth.AccessToken{token, secret}
+	cons := oauth.Consumer{HttpClient: c}
 	if f.Url.Host != "tumblr.com" {
-		getBlog(f, key, c, files, errs)
+		getBlog(f, tok, c, files, errs)
 	} else {
-		cons := oauth.NewConsumer(key, secret, oauth.ServiceProvider{
-			RequestTokenUrl:   "http://www.tumblr.com/oauth/request_token",
-			AuthorizeTokenUrl: "https://www.tumblr.com/oauth/authorize",
-			AccessTokenUrl:    "https://www.tumblr.com/oauth/access_token",
-		})
-		// cons.Debug(true)
-		requestToken, userUri, err := cons.GetRequestTokenAndUrl("https://localhost")
-		check(err)
-		// println(userUri)
-		verifier := OAuth(userUri, user, pass)
-		// println(verifier)
-		token, err := cons.AuthorizeToken(requestToken, verifier)
-		check(err)
 		for i := 0; ; i += 20 {
-			resp, err := cons.Get("https://api.tumblr.com/v2/user/following",
-				map[string]string{"offset": strconv.Itoa(i)}, token)
+			resp, err := cons.Get(apiFollowing,
+				map[string]string{"offset": strconv.Itoa(i)}, tok)
 			check(err)
 			var fr followingResponse
 			checkResponse(resp.Body, &fr)
@@ -123,12 +136,12 @@ casper.run();`
 	return verifier
 }
 
-func getBlog(fl File, key string, c *http.Client,
+func getBlog(fl File, key *oauth.AccessToken, c *http.Client,
 	files chan File, errs chan error) {
 
 	for i := int64(0); ; i += 20 {
-		reqUrl := apiPhotoPosts
-		u := fmt.Sprintf(reqUrl, fl.Url.Host, key, i)
+		reqUrl := apiPosts
+		u := fmt.Sprintf(reqUrl, fl.Url.Host, key.Token, i)
 		r, err := c.Get(u)
 		if err != nil {
 			errs <- err

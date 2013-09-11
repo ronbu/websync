@@ -149,8 +149,17 @@ func registry(hc *http.Client) (fun registryFn, err error) {
 			}
 			if match {
 				return func(files chan File, errs chan error) {
-					nameUri, _ := url.Parse("http://" + item.name)
-					user, password, err := keychainAuth(*nameUri)
+					var user, password string
+					var err error
+					// Make oauth usable for any Handler
+					if strings.HasSuffix(f.Url.Host, "tumblr.com") {
+						token, _ := handleOauth()
+						user, password = token.Token, token.Secret
+					} else {
+						nameUri, _ := url.Parse("http://" + item.name)
+						user, password, err = keychainAuth(*nameUri)
+
+					}
 					if err != nil {
 						errs <- err
 					}
