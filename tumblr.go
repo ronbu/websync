@@ -26,12 +26,12 @@ type tumblr struct {
 	DefaultHandler
 }
 
-func NewTumblr(c *http.Client, a *Auth) Handler {
+func NewTumblr(c *http.Client, a Auth) Handler {
 	return &tumblr{DefaultHandler{c, a}}
 }
 
-func (t *tumblr) Url(u *url.URL) (r *url.URL, exact bool, err error) {
-	return u, false, nil
+func (t *tumblr) Url(u *url.URL) (r *url.URL, err error) {
+	return u, nil
 }
 func (t *tumblr) Files(f File, files chan File, errs chan error) {
 	token, secret, err := t.OAuth(f.Url)

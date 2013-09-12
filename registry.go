@@ -8,18 +8,15 @@ import (
 )
 
 type Handler interface {
-	Url(u *url.URL) (r *url.URL, exact bool, err error)
+	Url(u *url.URL) (r *url.URL, err error)
 	Files(f File, files chan File, errs chan error)
 }
 
-type AuthFn func(*url.URL) (user, pw string, err error)
-type OAuthFn func(*url.URL) (token, secret string, err error)
-
-type NewHandlerFn func(*http.Client, *Auth) Handler
+type NewHandlerFn func(*http.Client, Auth) Handler
 
 type DefaultHandler struct {
 	*http.Client
-	*Auth
+	Auth
 }
 
 type legacy func(u url.URL, c *http.Client, user, pw string) ([]File, error)
@@ -28,8 +25,8 @@ type adapter struct {
 	f legacy
 }
 
-func (a *adapter) Url(u *url.URL) (r *url.URL, exact bool, err error) {
-	return u, false, nil
+func (a *adapter) Url(u *url.URL) (r *url.URL, err error) {
+	return u, nil
 }
 func (a *adapter) Files(f File, files chan File, errs chan error) {
 	user, pw, err := a.Keychain(f.Url)
@@ -45,14 +42,14 @@ func (a *adapter) Files(f File, files chan File, errs chan error) {
 	return
 }
 func Adapt(f legacy) NewHandlerFn {
-	return func(c *http.Client, a *Auth) Handler {
+	return func(c *http.Client, a Auth) Handler {
 		return &adapter{DefaultHandler{c, a}, f}
 	}
 }
 
 type RegistryFn func(f File) Handler
 
-func Registry(hc *http.Client, a *Auth) (fun RegistryFn, err error) {
+func Registry(hc *http.Client, a Auth) (fun RegistryFn, err error) {
 
 	const (
 		HOST = iota

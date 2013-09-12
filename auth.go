@@ -12,13 +12,18 @@ import (
 	"strings"
 )
 
-type Auth struct{}
+type Auth interface {
+	Keychain(u *url.URL) (user, pw string, err error)
+	OAuth(u *url.URL) (token, secret string, err error)
+}
 
-func (a *Auth) Keychain(u *url.URL) (user, pw string, err error) {
+type auth struct{}
+
+func (a *auth) Keychain(u *url.URL) (user, pw string, err error) {
 	return keychainAuth(*u)
 }
 
-func (a *Auth) OAuth(u *url.URL) (token, secret string, err error) {
+func (a *auth) OAuth(u *url.URL) (token, secret string, err error) {
 	tok, err := handleOauth()
 	return tok.Token, tok.Secret, err
 }

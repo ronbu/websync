@@ -38,7 +38,7 @@ Error:
 		goto Error
 	}
 	c := &http.Client{Jar: cj}
-	a := &Auth{}
+	a := &auth{}
 	lookup, err := Registry(c, a)
 	if err != nil {
 		goto Error
