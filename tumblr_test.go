@@ -73,6 +73,6 @@ func TestPost(t *testing.T) {
 	errs := make(chan error)
 	u, _ := url.Parse(s.URL + "/" + "blog")
 
-	fs := listIndexFn(t, Tumblr, File{Url: u}, files, errs)
+	fs := listIndexFn(t, Tumblr, File{Url: *u}, files, errs)
 	t.Log(fs)
 }

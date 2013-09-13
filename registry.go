@@ -71,9 +71,9 @@ type legacyFn func(u url.URL, c *http.Client, user, pw string) ([]File, error)
 
 func adapt(l legacyFn) IndexFn {
 	return func(f File, files chan File, errs chan error) {
-		user, pw, err := Keychain(*f.Url)
+		user, pw, err := Keychain(f.Url)
 		errs <- err
-		fs, err := l(*f.Url, HClient, user, pw)
+		fs, err := l(f.Url, HClient, user, pw)
 		if err != nil {
 			errs <- err
 		} else {

@@ -44,7 +44,7 @@ func Tumblr(f File, files chan File, errs chan error) {
 				bUri, err := url.Parse(b.Url)
 				check(err)
 				bUri.Path = bUri.Host
-				files <- File{Url: bUri}
+				files <- File{Url: *bUri}
 			}
 			if i >= fr.Total_blogs {
 				break
@@ -142,7 +142,7 @@ func getBlog(fl File, key string, c *http.Client,
 				for i, photo := range lp.Photos {
 					uri := photo.Alt_sizes[0].Url
 					files <- File{
-						Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
+						Url: url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
 							"%s-%d.%s", name, i, uri[len(uri)-3:])},
 						Mtime: mtime,
 						FileFunc: func() (
@@ -166,13 +166,13 @@ func getBlog(fl File, key string, c *http.Client,
 				continue
 			}
 			files <- File{
-				Url:      &url.URL{Path: name + ext},
+				Url:      url.URL{Path: name + ext},
 				Mtime:    mtime,
 				FileFunc: ff,
 			}
 			// store metadata
 			files <- File{
-				Url:   &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf("%s.json", name)},
+				Url:   url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf("%s.json", name)},
 				Mtime: mtime,
 				FileFunc: func() (r io.ReadCloser, err error) {
 					b, err := json.MarshalIndent(p, "", "\t")

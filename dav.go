@@ -63,7 +63,7 @@ func Dav(u url.URL, c *http.Client, user, pw string) (
 			continue
 		}
 		files = append(files, File{
-			Url:   &url.URL{Path: filepath},
+			Url:   url.URL{Path: filepath},
 			Mtime: mtime,
 			FileFunc: func() (r io.ReadCloser, err error) {
 				req, err := http.NewRequest("GET", fileurl.String(), nil)

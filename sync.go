@@ -12,7 +12,7 @@ import (
 
 type ReadFn func() (reader io.ReadCloser, err error)
 type File struct {
-	Url      *url.URL
+	Url      url.URL
 	Mtime    time.Time
 	FileFunc ReadFn
 }
@@ -36,7 +36,7 @@ func Sync(from, to string, lookup LookupFn) (chan File, chan error) {
 	}
 
 	go func() {
-		todos := []File{File{Url: fromUri}}
+		todos := []File{File{Url: *fromUri}}
 		for i := 0; i < len(todos); i++ {
 			todo := todos[i]
 
