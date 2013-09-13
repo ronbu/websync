@@ -10,10 +10,11 @@ import (
 	"time"
 )
 
+type ReadFn func() (reader io.ReadCloser, err error)
 type File struct {
 	Url      *url.URL
 	Mtime    time.Time
-	FileFunc func() (reader io.ReadCloser, err error)
+	FileFunc ReadFn
 }
 
 func (f File) ReadAll() (content []byte, err error) {

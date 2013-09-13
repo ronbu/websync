@@ -67,6 +67,7 @@ func checkResponse(rc *http.Response, resp interface{}) {
 		println("complete response: ", string(cr.Response))
 	}
 	check(err)
+
 }
 
 func getBlog(fl File, key string, c *http.Client,
@@ -86,80 +87,43 @@ func getBlog(fl File, key string, c *http.Client,
 		checkResponse(r, &br)
 
 		for _, rawPost := range br.Posts {
-			var p post
-			err = json.Unmarshal(rawPost, &p)
+			var basep post
+			err = json.Unmarshal(rawPost, &basep)
 			if err != nil {
 				errs <- err
-				return
+				continue
 			}
 
-			fileName := strconv.FormatInt(p.Id, 10)
-			mtime := time.Unix(p.Timestamp, 0)
+			var (
+				p     interface{}
+				ext   string
+				name  = strconv.FormatInt(basep.Id, 10)
+				ff    ReadFn
+				mtime = time.Unix(basep.Timestamp, 0)
+			)
 
-			//store metadata
-			files <- File{
-				Url:   &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(".%s.json", fileName)},
-				Mtime: mtime,
-				FileFunc: func() (r io.ReadCloser, err error) {
-					b, err := json.MarshalIndent(p, "", "\t")
-					if err != nil {
-						return
-					}
-					// println(string(b))
-					return fakeCloser{bytes.NewReader(b)}, err
-				},
-			}
-			switch p.PostType {
+			switch basep.PostType {
 			case "answer", "audio", "chat":
 				//not implemented
 				continue
 			case "link":
-				var p linkPost
-				err = json.Unmarshal(rawPost, &p)
-				if err != nil {
-					errs <- err
-					return
-				}
-				files <- File{
-					Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
-						"%d_link.txt", p.Id)},
-					Mtime: mtime,
-					FileFunc: func() (r io.ReadCloser, err error) {
-						return fakeCloser{strings.NewReader(p.Url)}, nil
-					},
-				}
+				lp := linkPost{}
+				err = json.Unmarshal(rawPost, &lp)
+				p = lp
+				ext = "-link.txt"
+				ff = func() (io.ReadCloser, error) { return newRC(lp.Url), nil }
 			case "quote":
-				var p quotePost
-				err = json.Unmarshal(rawPost, &p)
-				if err != nil {
-					errs <- err
-					return
-				}
-				files <- File{
-					Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
-						"%d_quote.txt", p.Id)},
-					Mtime: mtime,
-					FileFunc: func() (r io.ReadCloser, err error) {
-						return fakeCloser{strings.NewReader(p.Text)}, nil
-					},
-				}
-
+				lp := quotePost{}
+				err = json.Unmarshal(rawPost, &lp)
+				p = lp
+				ext = "-quote.txt"
+				ff = func() (io.ReadCloser, error) { return newRC(lp.Text), nil }
 			case "text":
-				var p textPost
-				err = json.Unmarshal(rawPost, &p)
-				if err != nil {
-					errs <- err
-					return
-				}
-				files <- File{
-					Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
-						"%d.md", p.Id)},
-					Mtime: mtime,
-					FileFunc: func() (r io.ReadCloser, err error) {
-						return fakeCloser{strings.NewReader(p.Body)}, nil
-					},
-				}
-
+				lp := textPost{}
+				err = json.Unmarshal(rawPost, &lp)
+				p = lp
+				ext = ".txt"
+				ff = func() (io.ReadCloser, error) { return newRC(lp.Body), nil }
 			case "video":
 				// println("video source: ", p.Source_url)
 				// println("post url: ", p.Post_url)
@@ -168,18 +132,18 @@ func getBlog(fl File, key string, c *http.Client,
 				// files <- File{Url: u}
 				continue
 			case "photo":
-				var p photoPost
-				err = json.Unmarshal(rawPost, &p)
+				lp := photoPost{}
+				err = json.Unmarshal(rawPost, &lp)
+				p = lp
 				if err != nil {
 					errs <- err
-					return
+					continue
 				}
-
-				for i, photo := range p.Photos {
+				for i, photo := range lp.Photos {
 					uri := photo.Alt_sizes[0].Url
 					files <- File{
 						Url: &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
-							"%s-%d.%s", fileName, i, uri[len(uri)-3:])},
+							"%s-%d.%s", name, i, uri[len(uri)-3:])},
 						Mtime: mtime,
 						FileFunc: func() (
 							r io.ReadCloser, err error) {
@@ -194,16 +158,39 @@ func getBlog(fl File, key string, c *http.Client,
 				}
 				continue
 			default:
-				errs <- errors.New("Do not know this type")
-				return
-
+				errs <- errors.New("Unknown Tumblr Type")
+				continue
+			}
+			if err != nil {
+				errs <- err
+				continue
+			}
+			files <- File{
+				Url:      &url.URL{Path: name + ext},
+				Mtime:    mtime,
+				FileFunc: ff,
+			}
+			// store metadata
+			files <- File{
+				Url:   &url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf("%s.json", name)},
+				Mtime: mtime,
+				FileFunc: func() (r io.ReadCloser, err error) {
+					b, err := json.MarshalIndent(p, "", "\t")
+					if err != nil {
+						return
+					}
+					return fakeCloser{bytes.NewReader(b)}, err
+				},
 			}
 		}
 		if i >= br.Blog.Posts {
 			break
 		}
 	}
-	return
+}
+
+func newRC(s string) io.ReadCloser {
+	return fakeCloser{strings.NewReader(s)}
 }
 
 type fakeCloser struct {
