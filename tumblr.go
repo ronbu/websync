@@ -15,11 +15,11 @@ import (
 	"time"
 )
 
-const (
-	apiVersion   = "/v2/"
-	apiFollowing = apiVersion + "user/following"
-	apiBlog      = apiVersion + "blog/%s"
-	apiPosts     = apiBlog + "/posts?api_key=%s&filter=raw&offset=%d"
+var (
+	tumbHost      = "https://api.tumblr.com" //needs to be replaced for testing
+	tumbV         = "/v2/"
+	tumbFollowing = tumbV + "user/following"
+	tumbPosts     = tumbV + "blog/%s/posts?api_key=%s&filter=raw&offset=%d"
 )
 
 type tumblr struct {
@@ -30,23 +30,26 @@ func NewTumblr(c *http.Client, a Auth) Handler {
 	return &tumblr{DefaultHandler{c, a}}
 }
 
-func (t *tumblr) Url(u *url.URL) (r *url.URL, err error) {
-	return u, nil
-}
 func (t *tumblr) Files(f File, files chan File, errs chan error) {
-	token, secret, err := t.OAuth(f.Url)
-	check(err)
-	tok := &oauth.AccessToken{token, secret}
-	cons := oauth.Consumer{HttpClient: t.Client}
+	tumbUri, _ := url.Parse(tumbHost)
 	if f.Url.Path != "/" {
+		tok, _, err := t.Keychain(tumbUri)
+		if err != nil {
+			errs <- err
+			return
+		}
 		getBlog(f, tok, t.Client, files, errs)
 	} else {
+		token, secret, err := t.OAuth(tumbUri)
+		check(err)
+		tok := &oauth.AccessToken{token, secret}
+		cons := oauth.Consumer{HttpClient: t.Client}
 		for i := 0; ; i += 20 {
-			resp, err := cons.Get(f.Url.String()+apiFollowing,
+			resp, err := cons.Get(tumbHost+tumbFollowing,
 				map[string]string{"offset": strconv.Itoa(i)}, tok)
 			check(err)
 			var fr followingResponse
-			checkResponse(resp.Body, &fr)
+			checkResponse(resp, &fr)
 			for _, b := range fr.Blogs {
 				bUri, err := url.Parse(b.Url)
 				check(err)
@@ -60,31 +63,29 @@ func (t *tumblr) Files(f File, files chan File, errs chan error) {
 	}
 }
 
-func checkResponse(rc io.ReadCloser, resp interface{}) {
-	data, err := ioutil.ReadAll(rc)
+func checkResponse(rc *http.Response, resp interface{}) {
+	if !(rc.StatusCode < 300 && rc.StatusCode >= 200) {
+		check(errors.New("Request: " + rc.Status))
+	}
+	data, err := ioutil.ReadAll(rc.Body)
 	check(err)
-	// println(string(data))
 	var cr completeResponse
 	err = json.Unmarshal(data, &cr)
-	if err != nil || cr.Meta.Status != 200 {
-		if cr.Meta.Msg != "" {
-			panic(errors.New(cr.Meta.Msg))
-		}
-	}
+	check(err)
 	err = json.Unmarshal(cr.Response, &resp)
 	if err != nil {
-		println(string(cr.Response))
+		println("complete response: ", string(cr.Response))
 	}
 	check(err)
 }
 
-func getBlog(fl File, key *oauth.AccessToken, c *http.Client,
+func getBlog(fl File, key string, c *http.Client,
 	files chan File, errs chan error) {
 
 	for i := int64(0); ; i += 20 {
 		thost := fl.Url.Path[1:]
-		fl.Url.Path = ""
-		u := fmt.Sprintf(fl.Url.String()+apiPosts, thost, key.Token, i)
+		u := fmt.Sprintf(tumbHost+tumbPosts, thost, key, i)
+		println(u)
 		r, err := c.Get(u)
 		if err != nil {
 			errs <- err
@@ -92,7 +93,7 @@ func getBlog(fl File, key *oauth.AccessToken, c *http.Client,
 		}
 
 		var br blogResponse
-		checkResponse(r.Body, &br)
+		checkResponse(r, &br)
 
 		for _, rawPost := range br.Posts {
 			var p post

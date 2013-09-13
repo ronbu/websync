@@ -8,7 +8,6 @@ import (
 )
 
 type Handler interface {
-	Url(u *url.URL) (r *url.URL, err error)
 	Files(f File, files chan File, errs chan error)
 }
 
@@ -25,9 +24,6 @@ type adapter struct {
 	f legacy
 }
 
-func (a *adapter) Url(u *url.URL) (r *url.URL, err error) {
-	return u, nil
-}
 func (a *adapter) Files(f File, files chan File, errs chan error) {
 	user, pw, err := a.Keychain(f.Url)
 	errs <- err
