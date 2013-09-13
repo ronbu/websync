@@ -30,7 +30,6 @@ func simulateTumblr(t *testing.T, b blog, posts ...interface{}) *httptest.Server
 
 	r := mux.NewRouter()
 	r.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal(r.URL)
 		b, err := json.Marshal(completeResponse{meta{404, "Not Found"}, []byte{}})
 		check(err)
 		http.Error(w, string(b), 404)

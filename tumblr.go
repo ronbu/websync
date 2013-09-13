@@ -24,14 +24,8 @@ var (
 
 func Tumblr(f File, files chan File, errs chan error) {
 	tumbUri, _ := url.Parse(tumbHost)
-	if f.Url.Path != "/" {
-		tok, _, err := Keychain(*tumbUri)
-		if err != nil {
-			errs <- err
-			return
-		}
-		getBlog(f, tok, HClient, files, errs)
-	} else {
+	p := f.Url.Path
+	if len(p) == 0 || p == "/" {
 		tok, _ := OAuth()
 		cons := oauth.Consumer{HttpClient: HClient}
 		for i := 0; ; i += 20 {
@@ -50,7 +44,129 @@ func Tumblr(f File, files chan File, errs chan error) {
 				break
 			}
 		}
+	} else {
+		if p[len(p)-1] != '/' {
+			f.Url.Path += "/"
+		}
+		tok, _, err := Keychain(*tumbUri)
+		if err != nil {
+			errs <- err
+			return
+		}
+		tumblrBlog(f, tok, files, errs)
 	}
+}
+
+func tumblrBlog(fl File, key string, files chan File, errs chan error) {
+	for i := int64(0); ; i += 20 {
+		blog := strings.Trim(fl.Url.Path, "/")
+		u := fmt.Sprintf(tumbHost+tumbPosts, blog, key, i)
+		println(u)
+		r, err := HClient.Get(u)
+		if err != nil {
+			errs <- err
+			return
+		}
+
+		var br blogResponse
+		checkResponse(r, &br)
+
+		for _, rawPost := range br.Posts {
+			postToFiles(fl, rawPost, files, errs)
+		}
+		if i >= br.Blog.Posts {
+			break
+		}
+	}
+}
+
+func postToFiles(bf File, raw []byte, fs chan File, errs chan error) {
+	var basep post
+	err := json.Unmarshal(raw, &basep)
+	if err != nil {
+		errs <- err
+		return
+	}
+
+	bf.Mtime = time.Unix(basep.Timestamp, 0)
+	var (
+		p    interface{}
+		ext  string
+		name = strconv.FormatInt(basep.Id, 10)
+		ff   ReadFn
+	)
+
+	switch basep.PostType {
+	case "answer", "audio", "chat":
+		//not implemented
+		return
+	case "link":
+		lp := linkPost{}
+		err = json.Unmarshal(raw, &lp)
+		p = lp
+		ext = "-link.txt"
+		ff = func() (io.ReadCloser, error) { return newRC(lp.Url), nil }
+	case "quote":
+		lp := quotePost{}
+		err = json.Unmarshal(raw, &lp)
+		p = lp
+		ext = "-quote.txt"
+		ff = func() (io.ReadCloser, error) { return newRC(lp.Text), nil }
+	case "text":
+		lp := textPost{}
+		err = json.Unmarshal(raw, &lp)
+		p = lp
+		ext = ".txt"
+		ff = func() (io.ReadCloser, error) { return newRC(lp.Body), nil }
+	case "video":
+		// println("video source: ", p.Source_url)
+		// println("post url: ", p.Post_url)
+		// TODO: Fix
+		// u, _ := url.Parse(p.)
+		// files <- File{Url: u}
+		return
+	case "photo":
+		lp := photoPost{}
+		err = json.Unmarshal(raw, &lp)
+		p = lp
+		if err != nil {
+			errs <- err
+			return
+		}
+		for i, photo := range lp.Photos {
+			uri := photo.Alt_sizes[0].Url
+			fs <- newFile(bf,
+				fmt.Sprintf("%s-%d.%s", name, i, uri[len(uri)-3:]),
+				func() (r io.ReadCloser, err error) {
+					resp, err := HClient.Get(uri)
+					if err != nil {
+						return nil, err
+					} else {
+						return resp.Body, nil
+					}
+				})
+
+		}
+		return
+	default:
+		errs <- errors.New("Unknown Tumblr post type")
+		return
+	}
+	if err != nil {
+		errs <- err
+		return
+	}
+
+	fs <- newFile(bf, name+ext, ff)
+	// store metadata in json file
+	fs <- newFile(bf, fmt.Sprintf("%s.json", name),
+		func() (r io.ReadCloser, err error) {
+			b, err := json.MarshalIndent(p, "", "\t")
+			if err != nil {
+				return
+			}
+			return fakeCloser{bytes.NewReader(b)}, err
+		})
 }
 
 func checkResponse(rc *http.Response, resp interface{}) {
@@ -70,123 +186,12 @@ func checkResponse(rc *http.Response, resp interface{}) {
 
 }
 
-func getBlog(fl File, key string, c *http.Client,
-	files chan File, errs chan error) {
-
-	for i := int64(0); ; i += 20 {
-		thost := fl.Url.Path[1:]
-		u := fmt.Sprintf(tumbHost+tumbPosts, thost, key, i)
-		println(u)
-		r, err := c.Get(u)
-		if err != nil {
-			errs <- err
-			return
-		}
-
-		var br blogResponse
-		checkResponse(r, &br)
-
-		for _, rawPost := range br.Posts {
-			var basep post
-			err = json.Unmarshal(rawPost, &basep)
-			if err != nil {
-				errs <- err
-				continue
-			}
-
-			var (
-				p     interface{}
-				ext   string
-				name  = strconv.FormatInt(basep.Id, 10)
-				ff    ReadFn
-				mtime = time.Unix(basep.Timestamp, 0)
-			)
-
-			switch basep.PostType {
-			case "answer", "audio", "chat":
-				//not implemented
-				continue
-			case "link":
-				lp := linkPost{}
-				err = json.Unmarshal(rawPost, &lp)
-				p = lp
-				ext = "-link.txt"
-				ff = func() (io.ReadCloser, error) { return newRC(lp.Url), nil }
-			case "quote":
-				lp := quotePost{}
-				err = json.Unmarshal(rawPost, &lp)
-				p = lp
-				ext = "-quote.txt"
-				ff = func() (io.ReadCloser, error) { return newRC(lp.Text), nil }
-			case "text":
-				lp := textPost{}
-				err = json.Unmarshal(rawPost, &lp)
-				p = lp
-				ext = ".txt"
-				ff = func() (io.ReadCloser, error) { return newRC(lp.Body), nil }
-			case "video":
-				// println("video source: ", p.Source_url)
-				// println("post url: ", p.Post_url)
-				// TODO: Fix
-				// u, _ := url.Parse(p.)
-				// files <- File{Url: u}
-				continue
-			case "photo":
-				lp := photoPost{}
-				err = json.Unmarshal(rawPost, &lp)
-				p = lp
-				if err != nil {
-					errs <- err
-					continue
-				}
-				for i, photo := range lp.Photos {
-					uri := photo.Alt_sizes[0].Url
-					files <- File{
-						Url: url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf(
-							"%s-%d.%s", name, i, uri[len(uri)-3:])},
-						Mtime: mtime,
-						FileFunc: func() (
-							r io.ReadCloser, err error) {
-							resp, err := c.Get(uri)
-							if err != nil {
-								return nil, err
-							} else {
-								return resp.Body, nil
-							}
-						},
-					}
-				}
-				continue
-			default:
-				errs <- errors.New("Unknown Tumblr Type")
-				continue
-			}
-			if err != nil {
-				errs <- err
-				continue
-			}
-			files <- File{
-				Url:      url.URL{Path: name + ext},
-				Mtime:    mtime,
-				FileFunc: ff,
-			}
-			// store metadata
-			files <- File{
-				Url:   url.URL{Path: fl.Url.Path + "/" + fmt.Sprintf("%s.json", name)},
-				Mtime: mtime,
-				FileFunc: func() (r io.ReadCloser, err error) {
-					b, err := json.MarshalIndent(p, "", "\t")
-					if err != nil {
-						return
-					}
-					return fakeCloser{bytes.NewReader(b)}, err
-				},
-			}
-		}
-		if i >= br.Blog.Posts {
-			break
-		}
+func newFile(f File, p string, rf ReadFn) File {
+	f.Url.Path += p
+	if rf != nil {
+		f.FileFunc = rf
 	}
+	return f
 }
 
 func newRC(s string) io.ReadCloser {
