@@ -6,8 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
-	"net/http/cookiejar"
 	"os"
 	"time"
 )
@@ -33,22 +31,12 @@ Error:
 		err = errors.New("Wrong number of Arguments")
 		goto Error
 	}
-	cj, err := cookiejar.New(nil)
-	if err != nil {
-		goto Error
-	}
-	c := &http.Client{Jar: cj}
-	a := &auth{}
-	lookup, err := Registry(c, a)
-	if err != nil {
-		goto Error
-	}
 	path := flag.Args()[1]
 	url := flag.Args()[0]
 	if _, err = os.Stat(path); err != nil {
 		goto Error
 	}
-	files, errs := Sync(url, path, lookup)
+	files, errs := Sync(url, path, Lookup)
 	for {
 		select {
 		case f, ok := <-files:

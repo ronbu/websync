@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 )
 
 var (
@@ -70,28 +69,10 @@ func TestPost(t *testing.T) {
 	defer s.Close()
 	tumbHost = s.URL
 
-	tumb := NewTumblr(http.DefaultClient, &fakeAuth{"u", "s"})
 	files := make(chan File)
 	errs := make(chan error)
 	u, _ := url.Parse(s.URL + "/" + "blog")
-	fs := readHandler(t, tumb, File{Url: u}, files, errs)
-	t.Log(fs)
-}
 
-func readHandler(t *testing.T, h Handler, f File, fs chan File, es chan error) (files []File) {
-	go func() {
-		h.Files(f, fs, es)
-	}()
-	for {
-		select {
-		case f := <-fs:
-			files = append(files, f)
-		case e := <-es:
-			if e != nil {
-				t.Fatal(e)
-			}
-		case <-time.After(1 * time.Second):
-			return
-		}
-	}
+	fs := listIndexFn(t, Tumblr, File{Url: u}, files, errs)
+	t.Log(fs)
 }

@@ -24,7 +24,7 @@ func (f File) ReadAll() (content []byte, err error) {
 	return ioutil.ReadAll(reader)
 }
 
-func Sync(from, to string, lookup RegistryFn) (chan File, chan error) {
+func Sync(from, to string, lookup LookupFn) (chan File, chan error) {
 	files := make(chan File)
 	errs := make(chan error)
 
@@ -39,16 +39,17 @@ func Sync(from, to string, lookup RegistryFn) (chan File, chan error) {
 		for i := 0; i < len(todos); i++ {
 			todo := todos[i]
 
-			h := lookup(todo)
-			if h == nil {
-				errs <- errors.New("Cannot Sync: " + todo.Url.String())
+			indexFn, err := lookup(todo)
+			errs <- err
+			if indexFn == nil {
+				errs <- errors.New("Not Supported: " + todo.Url.String())
 				continue
 			}
 
 			hfiles := make(chan File)
 			finish := make(chan bool)
 			go func(f chan bool) {
-				h.Files(todo, hfiles, errs)
+				indexFn(todo, hfiles, errs)
 				f <- true
 			}(finish)
 

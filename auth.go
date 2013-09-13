@@ -12,21 +12,11 @@ import (
 	"strings"
 )
 
-type Auth interface {
-	Keychain(u *url.URL) (user, pw string, err error)
-	OAuth(u *url.URL) (token, secret string, err error)
-}
-
-type auth struct{}
-
-func (a *auth) Keychain(u *url.URL) (user, pw string, err error) {
-	return keychainAuth(*u)
-}
-
-func (a *auth) OAuth(u *url.URL) (token, secret string, err error) {
-	tok, err := handleOauth()
-	return tok.Token, tok.Secret, err
-}
+var (
+	// we need these vars so we can inject mocks in testing
+	Keychain = keychainAuth
+	OAuth    = handleOauth
+)
 
 func StripPassword(url url.URL) url.URL {
 	url.User = nil
@@ -118,14 +108,14 @@ func handleOauth() (token *oauth.AccessToken, err error) {
 	requestToken, userUri, err := cons.GetRequestTokenAndUrl("https://localhost")
 	check(err)
 	// println(userUri)
-	verifier := OAuth(userUri, user, pass)
+	verifier := casper(userUri, user, pass)
 	// println(verifier)
 	token, err = cons.AuthorizeToken(requestToken, verifier)
 	check(err)
 	return
 }
 
-func OAuth(uri, user, pass string) (redirect string) {
+func casper(uri, user, pass string) (redirect string) {
 	js := `var casper = require("casper").create({
     // verbose: true,
     // logLevel: "debug"

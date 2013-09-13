@@ -1,16 +1,15 @@
 package main
 
 import (
+	"github.com/mrjones/oauth"
 	"net/url"
 )
 
-type fakeAuth struct {
-	u, s string
-}
-
-func (f *fakeAuth) Keychain(u *url.URL) (user, pw string, err error) {
-	return f.u, f.s, nil
-}
-func (f *fakeAuth) OAuth(u *url.URL) (token, secret string, err error) {
-	return f.u, f.s, nil
+func init() {
+	// replace auth functions for testing
+	Keychain = func(_ url.URL) (u, s string, e error) { return "u", "s", nil }
+	OAuth = func() (*oauth.AccessToken, error) {
+		t := &oauth.AccessToken{"t", "s"}
+		return t, nil
+	}
 }

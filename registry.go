@@ -1,52 +1,28 @@
 package main
 
 import (
+	"errors"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os/exec"
 	"strings"
 )
 
-type Handler interface {
-	Files(f File, files chan File, errs chan error)
-}
+var HClient *http.Client
 
-type NewHandlerFn func(*http.Client, Auth) Handler
-
-type DefaultHandler struct {
-	*http.Client
-	Auth
-}
-
-type legacy func(u url.URL, c *http.Client, user, pw string) ([]File, error)
-type adapter struct {
-	DefaultHandler
-	f legacy
-}
-
-func (a *adapter) Files(f File, files chan File, errs chan error) {
-	user, pw, err := a.Keychain(f.Url)
-	errs <- err
-	fs, err := a.f(*f.Url, a.Client, user, pw)
+func init() {
+	cj, err := cookiejar.New(nil)
 	if err != nil {
-		errs <- err
-	} else {
-		for _, f := range fs {
-			files <- f
-		}
+		panic(err)
 	}
-	return
-}
-func Adapt(f legacy) NewHandlerFn {
-	return func(c *http.Client, a Auth) Handler {
-		return &adapter{DefaultHandler{c, a}, f}
-	}
+	HClient = &http.Client{Jar: cj}
 }
 
-type RegistryFn func(f File) Handler
+type IndexFn func(f File, files chan File, errs chan error)
+type LookupFn func(f File) (indexFn IndexFn, err error)
 
-func Registry(hc *http.Client, a Auth) (fun RegistryFn, err error) {
-
+func Lookup(f File) (indexFn IndexFn, err error) {
 	const (
 		HOST = iota
 		PROTOCOL
@@ -55,44 +31,55 @@ func Registry(hc *http.Client, a Auth) (fun RegistryFn, err error) {
 	type item struct {
 		name string
 		kind int
-		f    NewHandlerFn
+		f    IndexFn
 	}
 	items := []item{}
-	items = append(items, item{"elearning.hslu.ch", HOST, Adapt(Ilias)})
-	items = append(items, item{"tumblr.com", HOST, NewTumblr})
-	items = append(items, item{"dav", PROTOCOL, Adapt(Dav)})
-	items = append(items, item{"davs", PROTOCOL, Adapt(Dav)})
+	items = append(items, item{"elearning.hslu.ch", HOST, adapt(Ilias)})
+	items = append(items, item{"tumblr.com", HOST, Tumblr})
+	items = append(items, item{"dav", PROTOCOL, adapt(Dav)})
+	items = append(items, item{"davs", PROTOCOL, adapt(Dav)})
 
 	c := exec.Command("/usr/bin/env", "youtube-dl", "--extractor-descriptions")
 	output, err := c.CombinedOutput()
 	if err != nil {
-		return
+		err = errors.New(err.Error() + " (trying without youtube-dl support)")
 	}
 	for _, line := range strings.Split(string(output), "\n") {
-		items = append(items, item{strings.ToLower(line), NAME, Adapt(YoutubeDl)})
+		items = append(items, item{strings.ToLower(line), NAME, adapt(YoutubeDl)})
 	}
-
-	return func(f File) Handler {
-		for _, item := range items {
-			match := false
-			switch item.kind {
-			case HOST:
-				if strings.HasSuffix(f.Url.Host, item.name) {
-					match = true
-				}
-			case PROTOCOL:
-				if f.Url.Scheme == item.name {
-					match = true
-				}
-			case NAME:
-				if strings.Contains(f.Url.Host, item.name) {
-					match = true
-				}
+	for _, item := range items {
+		indexFn = item.f
+		switch item.kind {
+		case HOST:
+			if strings.HasSuffix(f.Url.Host, item.name) {
+				return
 			}
-			if match {
-				return item.f(hc, a)
+		case PROTOCOL:
+			if f.Url.Scheme == item.name {
+				return
+			}
+		case NAME:
+			if strings.Contains(f.Url.Host, item.name) {
+				return
 			}
 		}
-		return nil
-	}, nil
+	}
+	return nil, err
+}
+
+type legacyFn func(u url.URL, c *http.Client, user, pw string) ([]File, error)
+
+func adapt(l legacyFn) IndexFn {
+	return func(f File, files chan File, errs chan error) {
+		user, pw, err := Keychain(*f.Url)
+		errs <- err
+		fs, err := l(*f.Url, HClient, user, pw)
+		if err != nil {
+			errs <- err
+		} else {
+			for _, f := range fs {
+				files <- f
+			}
+		}
+	}
 }

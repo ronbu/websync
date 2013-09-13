@@ -22,28 +22,18 @@ var (
 	tumbPosts     = tumbV + "blog/%s/posts?api_key=%s&filter=raw&offset=%d"
 )
 
-type tumblr struct {
-	DefaultHandler
-}
-
-func NewTumblr(c *http.Client, a Auth) Handler {
-	return &tumblr{DefaultHandler{c, a}}
-}
-
-func (t *tumblr) Files(f File, files chan File, errs chan error) {
+func Tumblr(f File, files chan File, errs chan error) {
 	tumbUri, _ := url.Parse(tumbHost)
 	if f.Url.Path != "/" {
-		tok, _, err := t.Keychain(tumbUri)
+		tok, _, err := Keychain(*tumbUri)
 		if err != nil {
 			errs <- err
 			return
 		}
-		getBlog(f, tok, t.Client, files, errs)
+		getBlog(f, tok, HClient, files, errs)
 	} else {
-		token, secret, err := t.OAuth(tumbUri)
-		check(err)
-		tok := &oauth.AccessToken{token, secret}
-		cons := oauth.Consumer{HttpClient: t.Client}
+		tok, _ := OAuth()
+		cons := oauth.Consumer{HttpClient: HClient}
 		for i := 0; ; i += 20 {
 			resp, err := cons.Get(tumbHost+tumbFollowing,
 				map[string]string{"offset": strconv.Itoa(i)}, tok)
