@@ -2,9 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -13,25 +14,28 @@ import (
 	"time"
 )
 
-func YoutubeDl(u url.URL, c *http.Client, user, password string) (
-	files []File, err error) {
+func YoutubeDl(f File, fs chan File, es chan error) {
 	base, rmTmp := TempDir()
 	defer rmTmp()
 
 	cmd := exec.Command("/usr/bin/env",
-		"youtube-dl", "--skip-download", "--write-info-json", u.String())
+		"youtube-dl", "--skip-download", "--write-info-json", f.Url.String())
 	cmd.Dir = base
-	err = cmd.Run()
+	// cmd.Stderr = os.Stderr
+	err := cmd.Run()
 	if err != nil {
+		es <- errors.New("youtube-dl does not support: " + f.Url.String())
 		return
 	}
 
 	baseDir, err := os.Open(base)
 	if err != nil {
+		es <- err
 		return
 	}
 	infoFiles, err := baseDir.Readdirnames(-1)
 	if err != nil {
+		es <- err
 		return
 	}
 
@@ -41,30 +45,26 @@ func YoutubeDl(u url.URL, c *http.Client, user, password string) (
 		var content []byte
 		content, err = ioutil.ReadFile(name)
 		if err != nil {
+			es <- err
 			return
 		}
 		var info info
 		err = json.Unmarshal(content, &info)
 		if err != nil {
+			es <- err
 			return
 		}
 
-		var year, month, day int
-		year, err = strconv.Atoi(info.Upload_date[0:4])
-		if err != nil {
-			return
-		}
-		month, err = strconv.Atoi(info.Upload_date[4:6])
-		if err != nil {
-			return
-		}
-		day, err = strconv.Atoi(info.Upload_date[6:8])
-		if err != nil {
+		year, e1 := strconv.Atoi(info.Upload_date[0:4])
+		month, e2 := strconv.Atoi(info.Upload_date[4:6])
+		day, e3 := strconv.Atoi(info.Upload_date[6:8])
+		if e1 != nil || e2 != nil || e3 != nil {
+			es <- errors.New("YoutubeDl: Could not parse Upload date")
 			return
 		}
 		mtime := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 
-		files = append(files, File{
+		fs <- File{
 			Url:   url.URL{Path: info.Title + "." + info.Ext},
 			Mtime: mtime,
 			FileFunc: func() (r io.ReadCloser, err error) {
@@ -78,18 +78,22 @@ func YoutubeDl(u url.URL, c *http.Client, user, password string) (
 				defer rmTmp()
 
 				cmd := exec.Command("/usr/bin/env",
-					"youtube-dl", "--id", u.String())
+					"youtube-dl", "--id", f.Url.String())
 				cmd.Dir = base
 				// cmd.Stdout = os.Stderr
-				// cmd.Stderr = os.Stderr
+				cmd.Stderr = os.Stderr
 				err = cmd.Run()
 				if err != nil {
-					return
+					return nil, errors.New(
+						fmt.Sprintf(
+							"youtube-dl failed: %v (%v)",
+							f.Url.String(),
+							err.Error()))
 				}
 
 				return os.Open(filepath.Join(base, info.Id+"."+info.Ext))
 			},
-		})
+		}
 	}
 
 	return

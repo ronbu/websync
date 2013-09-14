@@ -45,7 +45,7 @@ func Lookup(f File) (indexFn IndexFn, err error) {
 		err = errors.New(err.Error() + " (trying without youtube-dl support)")
 	}
 	for _, line := range strings.Split(string(output), "\n") {
-		items = append(items, item{strings.ToLower(line), NAME, adapt(YoutubeDl)})
+		items = append(items, item{strings.ToLower(line), NAME, YoutubeDl})
 	}
 	for _, item := range items {
 		indexFn = item.f
