@@ -21,7 +21,7 @@ func YoutubeDl(f File, fs chan File, es chan error) {
 	cmd := exec.Command("/usr/bin/env",
 		"youtube-dl", "--skip-download", "--write-info-json", f.Url.String())
 	cmd.Dir = base
-	// cmd.Stderr = os.Stderr
+	cmd.Stderr = os.Stderr
 	err := cmd.Run()
 	if err != nil {
 		es <- errors.New("youtube-dl does not support: " + f.Url.String())
@@ -55,14 +55,24 @@ func YoutubeDl(f File, fs chan File, es chan error) {
 			return
 		}
 
-		year, e1 := strconv.Atoi(info.Upload_date[0:4])
-		month, e2 := strconv.Atoi(info.Upload_date[4:6])
-		day, e3 := strconv.Atoi(info.Upload_date[6:8])
-		if e1 != nil || e2 != nil || e3 != nil {
-			es <- errors.New("YoutubeDl: Could not parse Upload date")
-			return
+		upd := info.Upload_date
+		mtime := unixZerotime
+		if len(upd) != 8 {
+			es <- errors.New("YoutubeDl: Invalid upload date: " + info.Upload_date)
+		} else {
+			year, e1 := strconv.Atoi(upd[0:4])
+			month, e2 := strconv.Atoi(upd[4:6])
+			day, e3 := strconv.Atoi(upd[6:8])
+			if e1 != nil || e2 != nil || e3 != nil {
+				es <- errors.New("YoutubeDl: Could not parse Upload date")
+			} else {
+				mtime = time.Date(
+					year,
+					time.Month(month),
+					day, 0, 0, 0, 0,
+					time.UTC)
+			}
 		}
-		mtime := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 
 		fs <- File{
 			Url:   url.URL{Path: info.Title + "." + info.Ext},
