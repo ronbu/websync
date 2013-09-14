@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -65,6 +66,17 @@ func Lookup(f File) (indexFn IndexFn, err error) {
 		}
 	}
 	return nil, err
+}
+
+func getReaderFn(url string) ReadFn {
+	return func() (io.ReadCloser, error) {
+		resp, err := HClient.Get(url)
+		if err == nil {
+			return resp.Body, nil
+		} else {
+			return nil, err
+		}
+	}
 }
 
 type legacyFn func(u url.URL, c *http.Client, user, pw string) ([]File, error)
