@@ -20,7 +20,7 @@ var (
 	tumbHost      = "https://api.tumblr.com" //needs to be replaced for testing
 	tumbV         = "/v2/"
 	tumbFollowing = tumbV + "user/following"
-	tumbPosts     = tumbV + "blog/%s/posts/video?api_key=%s&offset=%d"
+	tumbPosts     = tumbV + "blog/%s/posts?api_key=%s&offset=%d"
 )
 
 func Tumblr(f File, files chan File, errs chan error) {
@@ -62,7 +62,6 @@ func tumblrBlog(fl File, key string, files chan File, errs chan error) {
 	for i := int64(0); ; i += 20 {
 		blog := strings.Trim(fl.Url.Path, "/")
 		u := fmt.Sprintf(tumbHost+tumbPosts, blog, key, i)
-		println(u)
 		r, err := HClient.Get(u)
 		if err != nil {
 			errs <- err
@@ -129,7 +128,6 @@ func postToFiles(bf File, raw []byte, fs chan File) (err error) {
 		r := regexp.MustCompile(`src="(.+?)" `)
 		s := pl[len(pl)-1].Embed_code
 		rm := r.FindAllStringSubmatch(s, 1)
-		fmt.Println(rm)
 
 		if len(rm) == 1 && len(rm[0]) == 2 {
 			vurl := rm[0][1]
