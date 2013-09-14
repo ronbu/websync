@@ -77,7 +77,20 @@ func Sync(from, to string, lookup LookupFn) (chan File, chan error) {
 		close(files)
 		close(errs)
 	}()
-	return files, errs
+	return files, skipNil(errs)
+}
+
+func skipNil(in chan error) chan error {
+	out := make(chan error)
+	go func() {
+		for e := range in {
+			if e != nil {
+				out <- e
+			}
+		}
+		close(out)
+	}()
+	return out
 }
 
 func removeNanoseconds(in time.Time) time.Time {
