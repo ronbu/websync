@@ -37,7 +37,7 @@ func simulateTumblr(t *testing.T, b blog, posts ...interface{}) *httptest.Server
 	r.NewRoute().
 		Name("posts").
 		Path(tumbPostsRoute).
-		Queries("api_key", "", "offset", ``, "filter", "").
+		Queries("api_key", "", "offset", ``).
 		HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			println(r.URL)
@@ -58,7 +58,7 @@ func simulateTumblr(t *testing.T, b blog, posts ...interface{}) *httptest.Server
 func TestPost(t *testing.T) {
 	b := blog{Name: "blog"}
 
-	p := post{
+	p := basePost{
 		Id:        42,
 		Timestamp: 42,
 		PostType:  "text",

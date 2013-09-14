@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,7 @@ var (
 	tumbHost      = "https://api.tumblr.com" //needs to be replaced for testing
 	tumbV         = "/v2/"
 	tumbFollowing = tumbV + "user/following"
-	tumbPosts     = tumbV + "blog/%s/posts?api_key=%s&filter=raw&offset=%d"
+	tumbPosts     = tumbV + "blog/%s/posts/video?api_key=%s&offset=%d"
 )
 
 func Tumblr(f File, files chan File, errs chan error) {
@@ -72,7 +73,9 @@ func tumblrBlog(fl File, key string, files chan File, errs chan error) {
 		checkResponse(r, &br)
 
 		for _, rawPost := range br.Posts {
-			postToFiles(fl, rawPost, files, errs)
+			if err := postToFiles(fl, rawPost, files); err != nil {
+				errs <- err
+			}
 		}
 		if i >= br.Blog.Posts {
 			break
@@ -80,23 +83,22 @@ func tumblrBlog(fl File, key string, files chan File, errs chan error) {
 	}
 }
 
-func postToFiles(bf File, raw []byte, fs chan File, errs chan error) {
-	var basep post
-	err := json.Unmarshal(raw, &basep)
+func postToFiles(bf File, raw []byte, fs chan File) (err error) {
+	var bp basePost
+	err = json.Unmarshal(raw, &bp)
 	if err != nil {
-		errs <- err
 		return
 	}
 
-	bf.Mtime = time.Unix(basep.Timestamp, 0)
+	bf.Mtime = time.Unix(bp.Timestamp, 0)
+	id := strconv.FormatInt(bp.Id, 10)
 	var (
-		p    interface{}
-		ext  string
-		name = strconv.FormatInt(basep.Id, 10)
-		ff   ReadFn
+		p   interface{}
+		ext string
+		ff  ReadFn
 	)
 
-	switch basep.PostType {
+	switch bp.PostType {
 	case "answer", "audio", "chat":
 		//not implemented
 		return
@@ -119,24 +121,49 @@ func postToFiles(bf File, raw []byte, fs chan File, errs chan error) {
 		ext = ".txt"
 		ff = func() (io.ReadCloser, error) { return newRC(lp.Body), nil }
 	case "video":
-		// println("video source: ", p.Source_url)
-		// println("post url: ", p.Post_url)
-		// TODO: Fix
-		// u, _ := url.Parse(p.)
-		// files <- File{Url: u}
-		return
+		lp := videoPost{}
+		err = json.Unmarshal(raw, &lp)
+		p = lp
+
+		pl := lp.Player
+		r := regexp.MustCompile(`src="(.+?)" `)
+		s := pl[len(pl)-1].Embed_code
+		rm := r.FindAllStringSubmatch(s, 1)
+		fmt.Println(rm)
+
+		if len(rm) == 1 && len(rm[0]) == 2 {
+			vurl := rm[0][1]
+			u, _ := url.Parse(vurl)
+			if u.Scheme == "" {
+				u.Scheme = "http"
+			}
+			nf := bf
+			nf.Url = *u
+			//  Is this video stored on tumblr itself?
+			if strings.Contains(u.Host, "tumblr.com") {
+				// Then we can download the video with a simple GET
+				nf.FileFunc = getReaderFn(nf.Url.String())
+				fs <- nf
+			} else {
+				fs <- nf
+			}
+		} else {
+			return errors.New("Videopost: " + s)
+		}
+		// fmt.Println(lp)
+		return // TODO: Metadata  is not saved for videos
 	case "photo":
 		lp := photoPost{}
 		err = json.Unmarshal(raw, &lp)
 		p = lp
-		if err != nil {
-			errs <- err
-			return
-		}
 		for i, photo := range lp.Photos {
 			uri := photo.Alt_sizes[0].Url
-			fs <- newFile(bf,
-				fmt.Sprintf("%s-%d.%s", name, i, uri[len(uri)-3:]),
+			ext := uri[len(uri)-4:]
+			iname := fmt.Sprintf("%s-%d%s", id, i, ext)
+			if len(lp.Photos) == 1 {
+				iname = id + ext
+			}
+			fs <- newFile(bf, iname,
 				func() (r io.ReadCloser, err error) {
 					resp, err := HClient.Get(uri)
 					if err != nil {
@@ -147,19 +174,18 @@ func postToFiles(bf File, raw []byte, fs chan File, errs chan error) {
 				})
 
 		}
-		return
 	default:
-		errs <- errors.New("Unknown Tumblr post type")
-		return
+		return errors.New("Unknown Tumblr post type")
 	}
 	if err != nil {
-		errs <- err
-		return
+		return err
 	}
 
-	fs <- newFile(bf, name+ext, ff)
+	if bp.PostType != "photo" {
+		fs <- newFile(bf, id+ext, ff)
+	}
 	// store metadata in json file
-	fs <- newFile(bf, fmt.Sprintf("%s.json", name),
+	fs <- newFile(bf, "."+id+".json",
 		func() (r io.ReadCloser, err error) {
 			b, err := json.MarshalIndent(p, "", "\t")
 			if err != nil {
@@ -167,6 +193,7 @@ func postToFiles(bf File, raw []byte, fs chan File, errs chan error) {
 			}
 			return fakeCloser{bytes.NewReader(b)}, err
 		})
+	return
 }
 
 func checkResponse(rc *http.Response, resp interface{}) {
@@ -242,7 +269,7 @@ type blog struct {
 	Ask_anon    bool
 }
 
-type post struct {
+type basePost struct {
 	Blog_name    string
 	Id           int64
 	Post_url     string
@@ -262,12 +289,12 @@ type post struct {
 }
 
 type textPost struct {
-	post
+	basePost
 	Title, Body string
 }
 
 type photoPost struct {
-	post
+	basePost
 	Photos        []photoObject
 	Caption       string
 	Width, Height int64
@@ -284,17 +311,17 @@ type altSize struct {
 }
 
 type quotePost struct {
-	post
+	basePost
 	Text, Source string
 }
 
 type linkPost struct {
-	post
+	basePost
 	Title, Url, Description string
 }
 
 type chatPost struct {
-	post
+	basePost
 	Title, Body string
 	Dialogue    []dialogue
 }
@@ -304,7 +331,7 @@ type dialogue struct {
 }
 
 type audioPost struct {
-	post
+	basePost
 	Caption      string
 	Player       string
 	Plays        int64
@@ -317,7 +344,7 @@ type audioPost struct {
 }
 
 type videoPost struct {
-	post
+	basePost
 	Caption string
 	Player  []player
 }
@@ -328,7 +355,7 @@ type player struct {
 }
 
 type answerPost struct {
-	post
+	basePost
 	Asking_name string
 	Asking_url  string
 	Question    string
