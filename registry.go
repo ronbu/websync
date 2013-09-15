@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -36,6 +37,7 @@ func Lookup(f File) (indexFn IndexFn, err error) {
 	}
 	items := []item{}
 	items = append(items, item{"elearning.hslu.ch", HOST, adapt(Ilias)})
+	items = append(items, item{"zdf.de", HOST, Zdf})
 	items = append(items, item{"tumblr.com", HOST, Tumblr})
 	items = append(items, item{"dav", PROTOCOL, adapt(Dav)})
 	items = append(items, item{"davs", PROTOCOL, adapt(Dav)})
@@ -66,6 +68,15 @@ func Lookup(f File) (indexFn IndexFn, err error) {
 		}
 	}
 	return nil, err
+}
+
+func grabHttp(u string) (string, error) {
+	r, e := getReaderFn(u)()
+	if e != nil {
+		return "", e
+	}
+	d, e := ioutil.ReadAll(r)
+	return string(d), e
 }
 
 func getReaderFn(url string) ReadFn {
