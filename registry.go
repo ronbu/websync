@@ -36,7 +36,6 @@ func Lookup(f File) (indexFn IndexFn, err error) {
 		f    IndexFn
 	}
 	items := []item{}
-	items = append(items, item{"elearning.hslu.ch", HOST, adapt(Ilias)})
 	items = append(items, item{"zdf.de", HOST, Zdf})
 	items = append(items, item{"tumblr.com", HOST, Tumblr})
 	items = append(items, item{"dav", PROTOCOL, adapt(Dav)})
