@@ -26,6 +26,12 @@ func (f File) ReadAll() (content []byte, err error) {
 }
 
 func Sync(from, to string, lookup LookupFn) (chan File, chan error) {
+	return injectableSync(from, to, lookup, Local)
+}
+
+func injectableSync(from, to string, lookup LookupFn, writeFile func(File) error) (
+	chan File, chan error) {
+
 	files := make(chan File)
 	errs := make(chan error)
 
@@ -91,17 +97,6 @@ func skipNil(in chan error) chan error {
 		close(out)
 	}()
 	return out
-}
-
-func removeNanoseconds(in time.Time) time.Time {
-	return time.Date(
-		in.Year(),
-		in.Month(),
-		in.Day(),
-		in.Hour(),
-		in.Minute(),
-		in.Second(),
-		0, in.Location())
 }
 
 func Local(file File) (err error) {
