@@ -7,76 +7,74 @@ import (
 	"time"
 )
 
-var (
-	aFile = File{
-		Url:      url.URL{Path: "a"},
-		Mtime:    time.Now().Add(-time.Second),
-		FileFunc: stringReadFn("test"),
-	}
-)
-
 func TestLocalNew(t *testing.T) {
-	f := aFile
-	testLocal(func(tmp string) File {
-		aFile.Url.Path = tmp + aFile.Url.Path
+	testLocal(t, func(f File) File {
 		return f
-	}, func(err error) {
-		checkFile(t, f)
-	})
+	}, true)
 }
 
-func TestLocalOverwrite(t *testing.T) {
-	f := aFile
-	testLocal(func(tmp string) File {
-		f.Url.Path = tmp + f.Url.Path
-		Local(f)
+func TestLocalOverwriteOlder(t *testing.T) {
+	testLocal(t, func(f File) File {
+		err := Local(f)
+		if err != nil {
+			t.Error(err)
+		}
 		f.Mtime = f.Mtime.Add(time.Second)
 		return f
-	}, func(err error) {
-		checkFile(t, f)
-	})
+	}, true)
 }
 
-func TestLocalNotOverwrite(t *testing.T) {
-	f := aFile
-	testLocal(func(tmp string) File {
-		f.Url.Path = tmp + f.Url.Path
-		Local(f)
-		nf := f
-		nf.Mtime = nf.Mtime.Add(-time.Second)
-		return nf
-	}, func(err error) {
-		checkFile(t, f)
-	})
-}
-
-// Currently the function will even overwrite directories
-// if a new file is added with the same name as the dir
-func TestLocalOverwriteDir(t *testing.T) {
-	f := aFile
-	testLocal(func(tmp string) File {
-		f.Url.Path = tmp + f.Url.Path
-		os.Mkdir(f.Url.Path, 777)
+func TestLocalNotOverwriteNewer(t *testing.T) {
+	testLocal(t, func(f File) File {
+		err := Local(f)
+		if err != nil {
+			t.Error(err)
+		}
+		f.Mtime = f.Mtime.Add(-time.Second)
 		return f
-	}, func(err error) {
-		checkFile(t, f)
-	})
+	}, false)
 }
 
 func TestCreateDirs(t *testing.T) {
-	f := aFile
-	testLocal(func(tmp string) File {
-		f.Url.Path = tmp + "a/dir/oh/uh/hi/ho"
+	testLocal(t, func(f File) File {
+		f.Url.Path += "/a/dir/oh/uh/hi/ho"
 		return f
-	}, func(err error) {
-		checkFile(t, f)
-	})
+	}, true)
 }
 
-func testLocal(init func(string) File, check func(error)) {
+// Trying to overwrite a directory fails
+func TestLocalOverwriteDir(t *testing.T) {
 	tmp, rm := TempDir()
-	check(Local(init(tmp)))
+	defer rm()
+	f := someTestFile(tmp)
+	os.Mkdir(f.Url.Path, 777)
+	os.Chtimes(f.Url.Path, time.Now(), time.Now().Add(-time.Hour))
+	if Local(f) == nil {
+		t.Error("should have failed")
+	}
+}
+
+func testLocal(t *testing.T, init func(File) File, overwrite bool) {
+	tmp, rm := TempDir()
+	of := someTestFile(tmp)
+	f := init(of)
+	err := Local(f)
+	if err != nil {
+		t.Error(err)
+	}
+	if overwrite {
+		of = f
+	}
+	checkFile(t, of)
 	rm()
+}
+
+func someTestFile(tmp string) File {
+	return File{
+		Url:      url.URL{Path: tmp + "/a"},
+		Mtime:    time.Now(),
+		FileFunc: stringReadFn("test"),
+	}
 }
 
 func createSomeFile(tmp string) {
@@ -92,7 +90,7 @@ func checkFile(t *testing.T, f File) {
 		t.Error("File does not exist:", f.Url)
 	} else {
 		if !(st.ModTime().Equal(f.Mtime)) {
-			t.Errorf("Wrong Mtime: %s (%v != %v)", f.Url.Path, f.Mtime, st.ModTime())
+			t.Errorf("Not overwritten")
 		}
 	}
 }
