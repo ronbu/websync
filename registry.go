@@ -44,6 +44,7 @@ func Lookup(f File) (indexFn IndexFn, err error) {
 
 	c := exec.Command("/usr/bin/env", "youtube-dl", "--extractor-descriptions")
 	output, err := c.CombinedOutput()
+
 	if err != nil {
 		err = errors.New(err.Error() + " (trying without youtube-dl support)")
 	}
@@ -88,6 +89,20 @@ func getReaderFn(url string) ReadFn {
 			return nil, err
 		}
 	}
+}
+
+func stringReadFn(s string) ReadFn {
+	return func() (io.ReadCloser, error) {
+		return fakeCloser{strings.NewReader(s)}, nil
+	}
+}
+
+type fakeCloser struct {
+	io.Reader
+}
+
+func (f fakeCloser) Close() (err error) {
+	return
 }
 
 type legacyFn func(u url.URL, c *http.Client, user, pw string) ([]File, error)

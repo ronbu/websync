@@ -223,14 +223,6 @@ func newRC(s string) io.ReadCloser {
 	return fakeCloser{strings.NewReader(s)}
 }
 
-type fakeCloser struct {
-	io.Reader
-}
-
-func (f fakeCloser) Close() (err error) {
-	return
-}
-
 type completeResponse struct {
 	Meta     meta
 	Response json.RawMessage
