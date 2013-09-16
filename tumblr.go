@@ -46,9 +46,6 @@ func Tumblr(f File, files chan File, errs chan error) {
 			}
 		}
 	} else {
-		if p[len(p)-1] != '/' {
-			f.Url.Path += "/"
-		}
 		tok, _, err := Keychain(*tumbUri)
 		if err != nil {
 			errs <- err
@@ -212,7 +209,7 @@ func checkResponse(rc *http.Response, resp interface{}) {
 }
 
 func newFile(f File, p string, rf ReadFn) File {
-	f.Url.Path += p
+	f.Path += p
 	if rf != nil {
 		f.FileFunc = rf
 	}

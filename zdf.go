@@ -53,7 +53,6 @@ func Zdf(f File, fs chan File, es chan error) {
 						v := a.Val
 						if strings.Contains(v, "veryhigh") && // high quality
 							strings.Contains(v, "hstreaming.") { // .mov format
-							println(v)
 							name := filepath.Base(v)
 
 							nf := newFile(f, name, getReaderFn(v))

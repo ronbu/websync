@@ -1,7 +1,6 @@
 package main
 
 import (
-	"net/url"
 	"os"
 	"strconv"
 	"testing"
@@ -14,7 +13,7 @@ func TestSync(t *testing.T) {
 	expN := 1
 	fs, es := injectableSync("", "", fakeLookup(input),
 		func(f File) error {
-			n, _ := strconv.Atoi(f.Url.Path)
+			n, _ := strconv.Atoi(f.Path)
 			if n != expN {
 				t.Errorf("%d should have been %d", n, expN)
 			}
@@ -48,7 +47,7 @@ func fakeLookup(nums [][]int) LookupFn {
 					ff = nil
 				}
 				files <- File{
-					Url:      url.URL{Path: strconv.Itoa(n)},
+					Path:     strconv.Itoa(n),
 					FileFunc: ff,
 				}
 			}
@@ -97,9 +96,9 @@ func TestLocalNotOverwriteNewer(t *testing.T) {
 	}, false)
 }
 
-func TestCreateDirs(t *testing.T) {
+func TestLocalCreateDirs(t *testing.T) {
 	testLocal(t, func(f File) File {
-		f.Url.Path += "/a/dir/oh/uh/hi/ho"
+		f.Path += "/a/dir/oh/uh/hi/ho"
 		return f
 	}, true)
 }
@@ -109,8 +108,8 @@ func TestLocalOverwriteDir(t *testing.T) {
 	tmp, rm := TempDir()
 	defer rm()
 	f := someTestFile(tmp)
-	os.Mkdir(f.Url.Path, 777)
-	os.Chtimes(f.Url.Path, time.Now(), time.Now().Add(-time.Hour))
+	os.Mkdir(f.Path, 777)
+	os.Chtimes(f.Path, time.Now(), time.Now().Add(-time.Hour))
 	if Local(f) == nil {
 		t.Error("should have failed")
 	}
@@ -133,7 +132,7 @@ func testLocal(t *testing.T, init func(File) File, overwrite bool) {
 
 func someTestFile(tmp string) File {
 	return File{
-		Url:      url.URL{Path: tmp + "/a"},
+		Path:     tmp + "/a",
 		Mtime:    time.Now(),
 		FileFunc: stringReadFn("test"),
 	}
@@ -144,12 +143,12 @@ func createSomeFile(tmp string) {
 }
 
 func checkFile(t *testing.T, f File) {
-	st, err := os.Stat(f.Url.Path)
+	st, err := os.Stat(f.Path)
 
 	f.Mtime = removeSubSecond(f.Mtime)
 
 	if err != nil && os.IsNotExist(err) {
-		t.Error("File does not exist:", f.Url)
+		t.Error("File does not exist:", f.Path)
 	} else {
 		if !(st.ModTime().Equal(f.Mtime)) {
 			t.Errorf("Not overwritten")

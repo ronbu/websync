@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -74,36 +74,36 @@ func YoutubeDl(f File, fs chan File, es chan error) {
 			}
 		}
 
-		fs <- File{
-			Url:   url.URL{Path: info.Title + "." + info.Ext},
-			Mtime: mtime,
-			FileFunc: func() (r io.ReadCloser, err error) {
-				base, rmTmp := TempDir()
-				if err != nil {
-					return
-				}
-				// Behaviour in OS X: The temporary file will be
-				// automatically deleted after it is closed
-				// TODO: Find out if this works the same on other OS's
-				defer rmTmp()
+		f.Path += strings.Replace(info.Title, "/", "_", -1) + "." + info.Ext
+		f.Mtime = mtime
+		f.FileFunc = func() (r io.ReadCloser, err error) {
+			base, rmTmp := TempDir()
+			if err != nil {
+				return
+			}
+			// Behaviour in OS X: The temporary file will be
+			// automatically deleted after it is closed
+			// TODO: Find out if this works the same on other OS's
+			defer rmTmp()
 
-				cmd := exec.Command("/usr/bin/env",
-					"youtube-dl", "--id", f.Url.String())
-				cmd.Dir = base
-				// cmd.Stdout = os.Stderr
-				cmd.Stderr = os.Stderr
-				err = cmd.Run()
-				if err != nil {
-					return nil, errors.New(
-						fmt.Sprintf(
-							"youtube-dl failed: %v (%v)",
-							f.Url.String(),
-							err.Error()))
-				}
+			cmd := exec.Command("/usr/bin/env",
+				"youtube-dl", "--id", f.Url.String())
+			cmd.Dir = base
+			// cmd.Stdout = os.Stderr
+			cmd.Stderr = os.Stderr
+			err = cmd.Run()
+			if err != nil {
+				return nil, errors.New(
+					fmt.Sprintf(
+						"youtube-dl failed: %v (%v)",
+						f.Url.String(),
+						err.Error()))
+			}
 
-				return os.Open(filepath.Join(base, info.Id+"."+info.Ext))
-			},
+			return os.Open(filepath.Join(base, info.Id+"."+info.Ext))
 		}
+
+		fs <- f
 	}
 
 	return

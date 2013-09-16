@@ -12,6 +12,7 @@ import (
 
 type ReadFn func() (reader io.ReadCloser, err error)
 type File struct {
+	Path     string
 	Url      url.URL
 	Mtime    time.Time
 	FileFunc ReadFn
@@ -41,15 +42,19 @@ func injectableSync(from, to string, lookup LookupFn, writeFile func(File) error
 		return nil, errs
 	}
 
+	if to != "" && to[len(to)-1] != '/' {
+		to += "/"
+	}
+
 	go func() {
-		recursiveSync(to, File{Url: *fromUri}, files, errs, lookup, writeFile)
+		recursiveSync(File{Path: to, Url: *fromUri}, files, errs, lookup, writeFile)
 		close(files)
 		close(errs)
 	}()
 	return files, skipNil(errs)
 }
 
-func recursiveSync(to string, f File, files chan File, errs chan error,
+func recursiveSync(f File, files chan File, errs chan error,
 	lookup LookupFn, writeFile func(File) error) {
 
 	indexFn, err := lookup(f)
@@ -73,9 +78,8 @@ LOOP:
 			break LOOP
 		case f := <-hfiles:
 			if f.FileFunc == nil {
-				recursiveSync(to, f, files, errs, lookup, writeFile)
+				recursiveSync(f, files, errs, lookup, writeFile)
 			} else {
-				f.Url.Path = filepath.Join(to, f.Url.Path)
 				err = writeFile(f)
 				if err != nil {
 					errs <- err
@@ -101,16 +105,16 @@ func skipNil(in chan error) chan error {
 }
 
 func Local(file File) (err error) {
-	st, err := os.Stat(file.Url.Path)
+	st, err := os.Stat(file.Path)
 	if err != nil && !os.IsNotExist(err) {
 		return
 	}
 	if st == nil || file.Mtime.After(st.ModTime()) {
-		err = os.MkdirAll(filepath.Dir(file.Url.Path), os.ModeDir|os.ModePerm)
+		err = os.MkdirAll(filepath.Dir(file.Path), 0777)
 		if err != nil {
 			return err
 		}
-		osfile, err := os.Create(file.Url.Path)
+		osfile, err := os.Create(file.Path)
 		if err != nil {
 			return err
 		}
@@ -123,7 +127,7 @@ func Local(file File) (err error) {
 		if err != nil {
 			return err
 		}
-		os.Chtimes(file.Url.Path, file.Mtime, file.Mtime)
+		os.Chtimes(file.Path, file.Mtime, file.Mtime)
 
 		osfile.Sync()
 	}
