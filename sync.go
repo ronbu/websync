@@ -20,9 +20,12 @@ type File struct {
 	Read  ReadFn
 }
 
-func NewFile(base File, path string, uri *url.URL, f ReadFn) File {
+func NewFile(base File, path string, uri *url.URL, mtime *time.Time, f ReadFn) File {
 	if uri != nil {
 		base.Url = *uri
+	}
+	if mtime != nil {
+		base.Mtime = *mtime
 	}
 	if f != nil {
 		base.Read = f

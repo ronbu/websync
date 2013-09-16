@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/cookiejar"
-	"net/url"
 	"os/exec"
 	"strings"
 )
@@ -36,8 +35,8 @@ func Lookup(f File) (indexFn IndexFn, err error) {
 	items := []item{}
 	items = append(items, item{"zdf.de", HOST, Zdf})
 	items = append(items, item{"tumblr.com", HOST, Tumblr})
-	items = append(items, item{"dav", PROTOCOL, adapt(Dav)})
-	items = append(items, item{"davs", PROTOCOL, adapt(Dav)})
+	items = append(items, item{"dav", PROTOCOL, Dav})
+	items = append(items, item{"davs", PROTOCOL, Dav})
 
 	c := exec.Command("/usr/bin/env", "youtube-dl", "--extractor-descriptions")
 	output, err := c.CombinedOutput()
@@ -73,21 +72,4 @@ func grabHttp(u string) (string, error) {
 	f.FromUrl(u)
 	d, e := f.ReadAll()
 	return string(d), e
-}
-
-type legacyFn func(u url.URL, c *http.Client, user, pw string) ([]File, error)
-
-func adapt(l legacyFn) IndexFn {
-	return func(f File, files chan File, errs chan error) {
-		user, pw, err := Keychain(f.Url)
-		errs <- err
-		fs, err := l(f.Url, HClient, user, pw)
-		if err != nil {
-			errs <- err
-		} else {
-			for _, f := range fs {
-				files <- f
-			}
-		}
-	}
 }
