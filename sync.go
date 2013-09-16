@@ -81,7 +81,7 @@ func (f *File) FromRequest(req *http.Request) File {
 			return resp.Body, nil
 		} else {
 			return nil, errors.New(
-				req.URL.String() + ": " + err.Error())
+				req.URL.String() + ": " + resp.Status)
 		}
 	}
 	return *f

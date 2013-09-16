@@ -43,7 +43,7 @@ Error:
 			if !ok {
 				return
 			}
-			println(f.Path)
+			fmt.Println(f.Path())
 		case e := <-errs:
 			fmt.Fprintln(os.Stderr, e)
 		}
