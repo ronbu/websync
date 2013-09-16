@@ -35,7 +35,7 @@ func (f File) Path() string {
 }
 
 func (f *File) Append(p string) File {
-	if len(p) > 0 && p[0] == '/' {
+	if len(p) > 0 && p[0] == '/' && len(f.path) > 0 {
 		p = p[1:]
 	}
 	f.path += p
