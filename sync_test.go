@@ -3,9 +3,58 @@ package main
 import (
 	"net/url"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 )
+
+func TestSync(t *testing.T) {
+	exp := 1
+	executed := false
+	// current implementation is breadth first
+	fs, es := injectableSync("", "", fakeLookup([]int{1, 0, 2}, []int{3, 4}, []int{5, 6}),
+		func(f File) error {
+			executed = true
+			n, _ := strconv.Atoi(f.Url.Path)
+			if n != exp {
+				t.Errorf("%d should have been %d", n, exp)
+			}
+			exp++
+			return nil
+		})
+Loop:
+	for {
+		select {
+		case _, ok := <-fs:
+			if !ok {
+				break Loop
+			}
+		case <-es:
+		}
+	}
+	if !executed {
+		t.Error("No Files were generated")
+	}
+}
+
+func fakeLookup(nums ...[]int) LookupFn {
+	i := 0
+	return func(f File) (IndexFn, error) {
+		return func(f File, files chan File, errs chan error) {
+			for _, n := range nums[i] {
+				ff := stringReadFn("")
+				if n == 0 {
+					i++
+					ff = nil
+				}
+				files <- File{
+					Url:      url.URL{Path: strconv.Itoa(n)},
+					FileFunc: ff,
+				}
+			}
+		}, nil
+	}
+}
 
 func TestLocalNew(t *testing.T) {
 	testLocal(t, func(f File) File {

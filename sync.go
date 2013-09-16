@@ -70,7 +70,7 @@ func injectableSync(from, to string, lookup LookupFn, writeFile func(File) error
 						todos = append(todos, f)
 					} else {
 						f.Url.Path = filepath.Join(to, f.Url.Path)
-						err = Local(f)
+						err = writeFile(f)
 						if err != nil {
 							errs <- err
 						} else {
