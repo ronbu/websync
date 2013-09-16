@@ -11,8 +11,8 @@ import (
 func TestSync(t *testing.T) {
 	exp := 1
 	executed := false
-	// current implementation is breadth first
-	fs, es := injectableSync("", "", fakeLookup([]int{1, 0, 2}, []int{3, 4}, []int{5, 6}),
+	// Sync is depth first
+	fs, es := injectableSync("", "", fakeLookup([]int{1, 0, 6}, []int{0, 4, 5}, []int{2, 3}),
 		func(f File) error {
 			executed = true
 			n, _ := strconv.Atoi(f.Url.Path)

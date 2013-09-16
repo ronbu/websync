@@ -42,52 +42,53 @@ func injectableSync(from, to string, lookup LookupFn, writeFile func(File) error
 	}
 
 	go func() {
-		todos := []File{File{Url: *fromUri}}
-		for i := 0; i < len(todos); i++ {
-			todo := todos[i]
-
-			indexFn, err := lookup(todo)
-			errs <- err
-			if indexFn == nil {
-				errs <- errors.New("Not Supported: " + todo.Url.String())
-				continue
-			}
-
-			hfiles := make(chan File)
-			finish := make(chan bool)
-			go func(f chan bool) {
-				indexFn(todo, hfiles, errs)
-				f <- true
-			}(finish)
-
-		LOOP:
-			for {
-				select {
-				case <-finish:
-					break LOOP
-				case f := <-hfiles:
-					if f.FileFunc == nil {
-						todos = append(todos, f)
-					} else {
-						f.Url.Path = filepath.Join(to, f.Url.Path)
-						err = writeFile(f)
-						if err != nil {
-							errs <- err
-						} else {
-							files <- f
-						}
-					}
-				}
-			}
-		}
+		recursiveSync(to, File{Url: *fromUri}, files, errs, lookup, writeFile)
 		close(files)
 		close(errs)
 	}()
 	return files, skipNil(errs)
 }
 
+func recursiveSync(to string, f File, files chan File, errs chan error,
+	lookup LookupFn, writeFile func(File) error) {
+
+	indexFn, err := lookup(f)
+	errs <- err
+	if indexFn == nil {
+		errs <- errors.New("Not Supported: " + f.Url.String())
+		return
+	}
+
+	hfiles := make(chan File)
+	finish := make(chan bool)
+	go func() {
+		indexFn(f, hfiles, errs)
+		finish <- true
+	}()
+
+LOOP:
+	for {
+		select {
+		case <-finish:
+			break LOOP
+		case f := <-hfiles:
+			if f.FileFunc == nil {
+				recursiveSync(to, f, files, errs, lookup, writeFile)
+			} else {
+				f.Url.Path = filepath.Join(to, f.Url.Path)
+				err = writeFile(f)
+				if err != nil {
+					errs <- err
+				} else {
+					files <- f
+				}
+			}
+		}
+	}
+}
+
 func skipNil(in chan error) chan error {
-	out := make(chan error)
+	out := make(chan error, len(in))
 	go func() {
 		for e := range in {
 			if e != nil {
