@@ -55,9 +55,10 @@ func Zdf(f File, fs chan File, es chan error) {
 							strings.Contains(v, "hstreaming.") { // .mov format
 							name := filepath.Base(v)
 
-							nf := newFile(f, name, getReaderFn(v))
+							nf := f
+							nf.FromUrl(v)
 							nf.Mtime = time.Now()
-							fs <- nf
+							fs <- nf.Append(name)
 						}
 					})
 			})
@@ -66,11 +67,11 @@ func Zdf(f File, fs chan File, es chan error) {
 }
 
 func grabParse(u url.URL) (t h5.Tree, err error) {
-	r, err := getReaderFn(u.String())()
+	c, err := grabHttp(u.String())
 	if err != nil {
 		return
 	}
-	tp, err := h5.New(r)
+	tp, err := h5.NewFromString(c)
 	t = *tp
 	if err != nil {
 		return

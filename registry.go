@@ -2,8 +2,6 @@ package main
 
 import (
 	"errors"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -71,37 +69,10 @@ func Lookup(f File) (indexFn IndexFn, err error) {
 }
 
 func grabHttp(u string) (string, error) {
-	r, e := getReaderFn(u)()
-	if e != nil {
-		return "", e
-	}
-	d, e := ioutil.ReadAll(r)
+	f := File{}
+	f.FromUrl(u)
+	d, e := f.ReadAll()
 	return string(d), e
-}
-
-func getReaderFn(url string) ReadFn {
-	return func() (io.ReadCloser, error) {
-		resp, err := HClient.Get(url)
-		if err == nil {
-			return resp.Body, nil
-		} else {
-			return nil, err
-		}
-	}
-}
-
-func stringReadFn(s string) ReadFn {
-	return func() (io.ReadCloser, error) {
-		return fakeCloser{strings.NewReader(s)}, nil
-	}
-}
-
-type fakeCloser struct {
-	io.Reader
-}
-
-func (f fakeCloser) Close() (err error) {
-	return
 }
 
 type legacyFn func(u url.URL, c *http.Client, user, pw string) ([]File, error)

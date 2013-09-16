@@ -91,7 +91,6 @@ func postToFiles(bf File, raw []byte, fs chan File) (err error) {
 	var (
 		p   interface{}
 		ext string
-		ff  ReadFn
 	)
 
 	switch bp.PostType {
@@ -103,19 +102,19 @@ func postToFiles(bf File, raw []byte, fs chan File) (err error) {
 		err = json.Unmarshal(raw, &lp)
 		p = lp
 		ext = "-link.txt"
-		ff = func() (io.ReadCloser, error) { return newRC(lp.Url), nil }
+		bf.FromString(lp.Url)
 	case "quote":
 		lp := quotePost{}
 		err = json.Unmarshal(raw, &lp)
 		p = lp
 		ext = "-quote.txt"
-		ff = func() (io.ReadCloser, error) { return newRC(lp.Text), nil }
+		bf.FromString(lp.Text)
 	case "text":
 		lp := textPost{}
 		err = json.Unmarshal(raw, &lp)
 		p = lp
 		ext = ".txt"
-		ff = func() (io.ReadCloser, error) { return newRC(lp.Body), nil }
+		bf.FromString(lp.Body)
 	case "video":
 		lp := videoPost{}
 		err = json.Unmarshal(raw, &lp)
@@ -137,7 +136,7 @@ func postToFiles(bf File, raw []byte, fs chan File) (err error) {
 			//  Is this video stored on tumblr itself?
 			if strings.Contains(u.Host, "tumblr.com") {
 				// Then we can download the video with a simple GET
-				nf.FileFunc = getReaderFn(nf.Url.String())
+				nf.FromUrl(nf.Url.String())
 				fs <- nf
 			} else {
 				fs <- nf
@@ -158,15 +157,9 @@ func postToFiles(bf File, raw []byte, fs chan File) (err error) {
 			if len(lp.Photos) == 1 {
 				iname = id + ext
 			}
-			fs <- newFile(bf, iname,
-				func() (r io.ReadCloser, err error) {
-					resp, err := HClient.Get(uri)
-					if err != nil {
-						return nil, err
-					} else {
-						return resp.Body, nil
-					}
-				})
+			nf := bf
+			nf.FromUrl(uri)
+			fs <- nf.Append(iname)
 
 		}
 	default:
@@ -177,17 +170,19 @@ func postToFiles(bf File, raw []byte, fs chan File) (err error) {
 	}
 
 	if bp.PostType != "photo" {
-		fs <- newFile(bf, id+ext, ff)
+		nf := bf
+		fs <- nf.Append(id + ext)
 	}
 	// store metadata in json file
-	fs <- newFile(bf, "."+id+".json",
-		func() (r io.ReadCloser, err error) {
-			b, err := json.MarshalIndent(p, "", "\t")
-			if err != nil {
-				return
-			}
-			return fakeCloser{bytes.NewReader(b)}, err
-		})
+	nf := bf
+	nf.Read = func() (r io.ReadCloser, err error) {
+		b, err := json.MarshalIndent(p, "", "\t")
+		if err != nil {
+			return
+		}
+		return fakeCloser{bytes.NewReader(b)}, err
+	}
+	fs <- nf.Append("." + id + ".json")
 	return
 }
 
@@ -206,18 +201,6 @@ func checkResponse(rc *http.Response, resp interface{}) {
 	}
 	check(err)
 
-}
-
-func newFile(f File, p string, rf ReadFn) File {
-	f.Path += p
-	if rf != nil {
-		f.FileFunc = rf
-	}
-	return f
-}
-
-func newRC(s string) io.ReadCloser {
-	return fakeCloser{strings.NewReader(s)}
 }
 
 type completeResponse struct {

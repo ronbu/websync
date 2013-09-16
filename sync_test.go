@@ -13,7 +13,7 @@ func TestSync(t *testing.T) {
 	expN := 1
 	fs, es := injectableSync("", "", fakeLookup(input),
 		func(f File) error {
-			n, _ := strconv.Atoi(f.Path)
+			n, _ := strconv.Atoi(f.Path())
 			if n != expN {
 				t.Errorf("%d should have been %d", n, expN)
 			}
@@ -41,15 +41,13 @@ func fakeLookup(nums [][]int) LookupFn {
 	return func(f File) (IndexFn, error) {
 		return func(f File, files chan File, errs chan error) {
 			for _, n := range nums[i] {
-				ff := stringReadFn("")
+				nf := f
+				nf.FromString("")
 				if n == 0 {
 					i++
-					ff = nil
+					nf.Read = nil
 				}
-				files <- File{
-					Path:     strconv.Itoa(n),
-					FileFunc: ff,
-				}
+				files <- nf.Append(strconv.Itoa(n))
 			}
 		}, nil
 	}
@@ -98,8 +96,7 @@ func TestLocalNotOverwriteNewer(t *testing.T) {
 
 func TestLocalCreateDirs(t *testing.T) {
 	testLocal(t, func(f File) File {
-		f.Path += "/a/dir/oh/uh/hi/ho"
-		return f
+		return f.Append("a/dir/oh/uh/hi/ho")
 	}, true)
 }
 
@@ -108,8 +105,14 @@ func TestLocalOverwriteDir(t *testing.T) {
 	tmp, rm := TempDir()
 	defer rm()
 	f := someTestFile(tmp)
-	os.Mkdir(f.Path, 777)
-	os.Chtimes(f.Path, time.Now(), time.Now().Add(-time.Hour))
+	err := os.Mkdir(f.Path(), 777)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = os.Chtimes(f.Path(), time.Now(), time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if Local(f) == nil {
 		t.Error("should have failed")
 	}
@@ -131,24 +134,18 @@ func testLocal(t *testing.T, init func(File) File, overwrite bool) {
 }
 
 func someTestFile(tmp string) File {
-	return File{
-		Path:     tmp + "/a",
-		Mtime:    time.Now(),
-		FileFunc: stringReadFn("test"),
-	}
-}
-
-func createSomeFile(tmp string) {
-	return
+	f := File{Mtime: time.Now(), path: tmp + "/a"}
+	f.FromString("test")
+	return f
 }
 
 func checkFile(t *testing.T, f File) {
-	st, err := os.Stat(f.Path)
+	st, err := os.Stat(f.Path())
 
 	f.Mtime = removeSubSecond(f.Mtime)
 
 	if err != nil && os.IsNotExist(err) {
-		t.Error("File does not exist:", f.Path)
+		t.Error("File does not exist:", f.Path())
 	} else {
 		if !(st.ModTime().Equal(f.Mtime)) {
 			t.Errorf("Not overwritten")

@@ -74,9 +74,9 @@ func YoutubeDl(f File, fs chan File, es chan error) {
 			}
 		}
 
-		f.Path += strings.Replace(info.Title, "/", "_", -1) + "." + info.Ext
+		f.Append(strings.Replace(info.Title, "/", "_", -1) + "." + info.Ext)
 		f.Mtime = mtime
-		f.FileFunc = func() (r io.ReadCloser, err error) {
+		f.Read = func() (r io.ReadCloser, err error) {
 			base, rmTmp := TempDir()
 			if err != nil {
 				return
