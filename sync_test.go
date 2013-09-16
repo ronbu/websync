@@ -9,17 +9,16 @@ import (
 )
 
 func TestSync(t *testing.T) {
-	exp := 1
-	executed := false
 	// Sync is depth first
-	fs, es := injectableSync("", "", fakeLookup([]int{1, 0, 6}, []int{0, 4, 5}, []int{2, 3}),
+	input := [][]int{{1, 0, 6}, {0, 4, 5}, {2, 3}}
+	expN := 1
+	fs, es := injectableSync("", "", fakeLookup(input),
 		func(f File) error {
-			executed = true
 			n, _ := strconv.Atoi(f.Url.Path)
-			if n != exp {
-				t.Errorf("%d should have been %d", n, exp)
+			if n != expN {
+				t.Errorf("%d should have been %d", n, expN)
 			}
-			exp++
+			expN++
 			return nil
 		})
 Loop:
@@ -32,12 +31,13 @@ Loop:
 		case <-es:
 		}
 	}
-	if !executed {
-		t.Error("No Files were generated")
+	expected := flattenInts(input)
+	if expN < len(expected) {
+		t.Error("Missing Files:", expected[expN:])
 	}
 }
 
-func fakeLookup(nums ...[]int) LookupFn {
+func fakeLookup(nums [][]int) LookupFn {
 	i := 0
 	return func(f File) (IndexFn, error) {
 		return func(f File, files chan File, errs chan error) {
@@ -54,6 +54,19 @@ func fakeLookup(nums ...[]int) LookupFn {
 			}
 		}, nil
 	}
+}
+
+func flattenInts(ints [][]int) []int {
+	res := []int{}
+	for _, g := range ints {
+		for _, n := range g {
+			if n == 0 {
+				continue
+			}
+			res = append(res, n)
+		}
+	}
+	return res
 }
 
 func TestLocalNew(t *testing.T) {
