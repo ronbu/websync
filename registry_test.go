@@ -45,30 +45,33 @@ LOOP:
 			t.Errorf("Reading %v failed: %v", ac, e)
 		}
 
-		switch {
-		case string(expCont) != string(acContent):
-			t.Errorf("%s != %s", expCont, acContent)
-			fallthrough
-		case !(ac.Mtime.Equal(exp.Mtime) && ac.Url == exp.Url):
-			t.Errorf("%v != %v", exp, ac)
+		if string(expCont) != string(acContent) {
+			t.Errorf("Content:\nE: %s\nA: %s", expCont, acContent)
+		}
+		if !ac.Mtime.Equal(exp.Mtime) {
+			t.Errorf("Mtime:\nE: %#s\nA: %#s", exp.Mtime, ac.Mtime)
+		}
+		if ac.Url.Path != exp.Url.Path {
+			t.Errorf("URL:\nE: %s\nA: %s", exp.Url.Path, ac.Url.Path)
 		}
 	}
 }
 
-type testCase struct {
+type testcase struct {
 	in  File
 	exp []File
 }
 
 func testIndex(t *testing.T, urlVar *url.URL, ifn IndexFn,
-	tests []testCase, tFn func([]File) http.Handler) {
-	for _, test := range tests {
-		s := httptest.NewServer(tFn(test.exp))
-		if urlVar != nil {
-			u, _ := url.Parse(s.URL)
-			*urlVar = *u
-		}
-		testIndexFn(t, ifn, test.in, test.exp)
-		s.Close()
+	h http.Handler, tests []testcase) {
+
+	s := httptest.NewServer(h)
+	if urlVar != nil {
+		u, _ := url.Parse(s.URL)
+		*urlVar = *u
 	}
+	for _, test := range tests {
+		testIndexFn(t, ifn, test.in, test.exp)
+	}
+	s.Close()
 }

@@ -2,41 +2,35 @@ package main
 
 import (
 	"net/http"
+	// "net/url"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestHttp(t *testing.T) {
-	mtime := time.Now()
-	bf := NewFile(File{}, "", nil, &mtime, nil).FromString("content")
+	content := "content"
+	now := removeSubSecond(time.Now())
+	// never := time.Time{}
 
-	basic := "basic.txt"
-	normal := "a.txt"
+	bf := File{Mtime: now}
+	bf = bf.FromString(content)
 
-	testIndex(t, &httpHost, Http, []testCase{
-		{in: bf.Append(basic), exp: []File{bf.Append(basic)}},
-		{in: bf.Append(normal), exp: []File{bf.Append(normal)}},
-		{in: bf.Append("txt"), exp: []File{bf.Append("txt.txt")}},
-		{in: bf.Append("html"), exp: []File{bf.Append("html.html")}},
-		{in: bf.Append("asp"), exp: []File{bf.Append("asp.asp")}},
-	}, func(fs []File) http.Handler {
-		f := fs[0]
-		c, _ := f.ReadAll()
-		auth := true
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			println(r.URL.String())
-			switch r.URL.Path[1:] {
-			case basic:
-				// TODO: implement basic authentication
-				if auth {
-					w.WriteHeader(http.StatusUnauthorized)
-				}
-				auth = false
-				fallthrough
-			default:
-				w.Write(c)
-			}
-		})
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		println(r.RequestURI)
+		http.ServeContent(w, r, "somename", now, strings.NewReader(content))
 	})
 
+	testIndex(t, &httpHost, Http, h, convertTestcases([]File{
+		File{}, bf,
+		File{path: "a"}, NewFile(bf, "a.txt", nil, nil, nil),
+	}))
+}
+
+func convertTestcases(files []File) []testcase {
+	res := []testcase{}
+	for i := 0; i < len(files); i += 2 {
+		res = append(res, testcase{in: files[i], exp: []File{files[i+1]}})
+	}
+	return res
 }

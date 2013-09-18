@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // global http client
@@ -65,6 +66,10 @@ func httpGet(f File) (file File, err error) {
 	sc := resp.StatusCode
 	if !(sc >= 200 && sc < 300) {
 		return File{}, errors.New(f.Url.String() + ": " + resp.Status)
+	}
+	mtime, err := time.Parse(time.RFC1123, resp.Header.Get("Last-Modified"))
+	if err == nil {
+		f.Mtime = mtime
 	}
 	return NewFile(f, name+ext, &f.Url, nil, func() (io.ReadCloser, error) {
 		return resp.Body, nil
