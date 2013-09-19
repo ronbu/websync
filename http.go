@@ -32,12 +32,7 @@ func Http(f File, files chan File, errs chan error) {
 }
 
 func httpGet(f File) (file File, err error) {
-	if httpHost.Host != "" {
-		// dependency inject test server
-		f.Url.Scheme = httpHost.Scheme
-		f.Url.Host = httpHost.Host
-	}
-
+	u := replaceHost(f.Url, httpHost.Host)
 	// TODO: check mimetypes and filename header to determine
 	// correct filename and extension
 	ext := filepath.Ext(f.Url.Path)
@@ -53,12 +48,12 @@ func httpGet(f File) (file File, err error) {
 		// TODO: its probably better to fail here
 		name = "Noname"
 	}
-	resp, err := HClient.Get(f.Url.String())
+	resp, err := HClient.Get(u.String())
 	if err != nil {
 		return
 	}
 	if resp.StatusCode == 401 {
-		resp, err = basicAuth(f.Url)
+		resp, err = basicAuth(u)
 		if err != nil {
 			return
 		}

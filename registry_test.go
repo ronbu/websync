@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -35,18 +37,8 @@ LOOP:
 	}
 	for i, ac := range actual {
 		exp := expected[i]
-
-		expCont, e := exp.ReadAll()
-		if e != nil {
-			t.Fatal("Reading Expected File failed: ", e)
-		}
-		acContent, e := ac.ReadAll()
-		if e != nil {
-			t.Errorf("Reading %v failed: %v", ac, e)
-		}
-
-		if string(expCont) != string(acContent) {
-			t.Errorf("Content:\nE: %s\nA: %s", expCont, acContent)
+		if exp.Url != ac.Url {
+			t.Errorf("Url:\nE: %s\nA: %s", exp.Url, ac.Url)
 		}
 		if !ac.Mtime.Equal(exp.Mtime) {
 			t.Errorf("Mtime:\nE: %#s\nA: %#s", exp.Mtime, ac.Mtime)
@@ -58,12 +50,12 @@ LOOP:
 }
 
 type testcase struct {
-	in  File
-	exp []File
+	in  string
+	exp []string
 }
 
-func testIndex(t *testing.T, urlVar *url.URL, ifn IndexFn,
-	h http.Handler, tests []testcase) {
+func testIndex(t *testing.T, urlVar *url.URL, ifn IndexFn, h http.Handler,
+	tests []testcase) {
 
 	s := httptest.NewServer(h)
 	if urlVar != nil {
@@ -71,7 +63,38 @@ func testIndex(t *testing.T, urlVar *url.URL, ifn IndexFn,
 		*urlVar = *u
 	}
 	for _, test := range tests {
-		testIndexFn(t, ifn, test.in, test.exp)
+		in, err := parseStringTest(test.in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := []File{}
+		for _, expStr := range test.exp {
+			exp, err := parseStringTest(expStr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected = append(expected, exp)
+		}
+		testIndexFn(t, ifn, in, expected)
 	}
-	s.Close()
+
+}
+
+func parseStringTest(line string) (File, error) {
+	parts := strings.Split(line, "|")
+
+	u, err := url.Parse(parts[len(parts)-3])
+	if err != nil {
+		return File{}, err
+	}
+
+	secs, err := strconv.Atoi(parts[len(parts)-1])
+	mtime := time.Unix(int64(secs), 0)
+
+	return File{path: parts[len(parts)-2], Url: *u, Mtime: mtime}, nil
+}
+
+func replaceHost(u url.URL, h string) url.URL {
+	u.Host = h
+	return u
 }
