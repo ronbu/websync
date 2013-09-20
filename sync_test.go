@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
@@ -79,7 +78,7 @@ func TestLocalNew(t *testing.T) {
 
 func TestLocalOverwriteOlder(t *testing.T) {
 	testLocal(t, func(f File, r io.ReadCloser) File {
-		err := Local(f, r)
+		err := local(f, r)
 		if err != nil {
 			t.Error(err)
 		}
@@ -90,7 +89,7 @@ func TestLocalOverwriteOlder(t *testing.T) {
 
 func TestLocalNotOverwriteNewer(t *testing.T) {
 	testLocal(t, func(f File, r io.ReadCloser) File {
-		err := Local(f, r)
+		err := local(f, r)
 		if err != nil {
 			t.Error(err)
 		}
@@ -119,7 +118,7 @@ func TestLocalOverwriteDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if Local(f, r) == nil {
+	if local(f, r) == nil {
 		t.Error("should have failed")
 	}
 }
@@ -128,7 +127,7 @@ func testLocal(t *testing.T, init func(File, io.ReadCloser) File, overwrite bool
 	tmp, rm := TempDir()
 	of, r := someTestFile(tmp)
 	f := init(of, r)
-	err := Local(f, r)
+	err := local(f, r)
 	if err != nil {
 		t.Error(err)
 	}
