@@ -159,7 +159,7 @@ func checkFile(t *testing.T, f File) {
 	} else {
 		mtime := removeSubSecond(st.ModTime())
 		if !(mtime.Equal(f.Mtime)) {
-			t.Errorf("Not overwritten")
+			t.Error(mtime, "should be", f.Mtime)
 		}
 	}
 }
