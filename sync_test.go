@@ -157,7 +157,8 @@ func checkFile(t *testing.T, f File) {
 	if err != nil && os.IsNotExist(err) {
 		t.Error("File does not exist:", f.Path)
 	} else {
-		if !(st.ModTime().Equal(f.Mtime)) {
+		mtime := removeSubSecond(st.ModTime())
+		if !(mtime.Equal(f.Mtime)) {
 			t.Errorf("Not overwritten")
 		}
 	}
