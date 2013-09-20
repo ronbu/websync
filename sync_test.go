@@ -137,6 +137,10 @@ func testLocal(t *testing.T, init func(File, io.ReadCloser) File, overwrite bool
 		of = f
 	}
 	checkFile(t, of)
+	filepath.Walk(tmp, func(path string, info os.FileInfo, err error) error {
+		t.Log(path, info.ModTime(), err)
+		return nil
+	})
 	rm()
 }
 
