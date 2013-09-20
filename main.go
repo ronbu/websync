@@ -36,16 +36,12 @@ Error:
 	if _, err = os.Stat(path); err != nil {
 		goto Error
 	}
-	files, errs := Sync(url, path, Lookup)
-	for {
-		select {
-		case f, ok := <-files:
-			if !ok {
-				return
-			}
-			fmt.Println(f.Path())
-		case e := <-errs:
-			fmt.Fprintln(os.Stderr, e)
+	files := Sync(url, path)
+	for f := range files {
+		if f.Err != nil {
+			fmt.Fprintln(os.Stderr, f.Err)
+		} else {
+			fmt.Println(f.Path)
 		}
 	}
 }

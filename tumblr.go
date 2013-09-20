@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/mrjones/oauth"
-	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -23,11 +21,15 @@ var (
 	tumbPosts     = tumbV + "blog/%s/posts?api_key=%s&offset=%d"
 )
 
-func Tumblr(f File, files chan File, errs chan error) {
+func Tumblr(f File, ch chan File) {
 	tumbUri, _ := url.Parse(tumbHost)
 	p := f.Url.Path
 	if len(p) == 0 || p == "/" {
-		tok, _ := OAuth()
+		tok, err := OAuth()
+		if err != nil {
+			f.SendErr(ch, &err)
+			return
+		}
 		cons := oauth.Consumer{HttpClient: HClient}
 		for i := 0; ; i += 20 {
 			resp, err := cons.Get(tumbHost+tumbFollowing,
@@ -39,7 +41,7 @@ func Tumblr(f File, files chan File, errs chan error) {
 				bUri, err := url.Parse(b.Url)
 				check(err)
 				bUri.Path = bUri.Host
-				files <- File{Url: *bUri}
+				ch <- File{Url: *bUri}
 			}
 			if i >= fr.Total_blogs {
 				break
@@ -48,20 +50,23 @@ func Tumblr(f File, files chan File, errs chan error) {
 	} else {
 		tok, _, err := Keychain(*tumbUri)
 		if err != nil {
-			errs <- err
+			f.SendErr(ch, &err)
 			return
 		}
-		tumblrBlog(f, tok, files, errs)
+		err = tumblrBlog(f, tok, ch)
+		f.SendErr(ch, &err)
 	}
+	return
 }
 
-func tumblrBlog(fl File, key string, files chan File, errs chan error) {
+func tumblrBlog(fl File, key string, files chan File) (err error) {
 	for i := int64(0); ; i += 20 {
+		// println(fl.Url.String())
 		blog := strings.Trim(fl.Url.Path, "/")
 		u := fmt.Sprintf(tumbHost+tumbPosts, blog, key, i)
-		r, err := HClient.Get(u)
+		var r *http.Response
+		r, err = HClient.Get(u)
 		if err != nil {
-			errs <- err
 			return
 		}
 
@@ -69,125 +74,142 @@ func tumblrBlog(fl File, key string, files chan File, errs chan error) {
 		checkResponse(r, &br)
 
 		for _, rawPost := range br.Posts {
-			if err := postToFiles(fl, rawPost, files); err != nil {
-				errs <- err
-			}
+			tumblrPost(fl, rawPost, files)
 		}
 		if i >= br.Blog.Posts {
 			break
 		}
 	}
+	return nil
 }
 
-func postToFiles(bf File, raw []byte, fs chan File) (err error) {
+func tumblrPost(f File, raw []byte, ch chan File) {
 	var bp basePost
-	err = json.Unmarshal(raw, &bp)
+	err := json.Unmarshal(raw, &bp)
 	if err != nil {
+		f.SendErr(ch, &err)
 		return
 	}
-
-	bf.Mtime = time.Unix(bp.Timestamp, 0)
+	f.Mtime = time.Unix(bp.Timestamp, 0)
 	id := strconv.FormatInt(bp.Id, 10)
-	var (
-		p   interface{}
-		ext string
-	)
+	f.Path += id
+	var p interface{}
 
-	switch bp.PostType {
+	ptype := bp.PostType
+	if ptype == "photo" {
+		p = tumblrPhoto(f, raw, ch)
+	} else {
+		if ptype == "video" {
+			f, p = tumblrVideo(f, raw)
+		} else {
+			f, p = tumblrText(f, raw, ptype)
+		}
+		ch <- f
+	}
+	// store metadata in json file
+	f.Path += ".json"
+	b, err := json.MarshalIndent(p, "", "\t")
+	f.Err = err
+	f.Body = b
+	if f.Err == nil {
+		f.SetLeaf()
+	}
+	ch <- f.SetLeaf()
+}
+
+func tumblrVideo(f File, raw []byte) (File, videoPost) {
+	p := videoPost{}
+	err := json.Unmarshal(raw, &p)
+	if err != nil {
+		f.Err = err
+		return f, p
+	}
+
+	pl := p.Player
+	r := regexp.MustCompile(`src="(.+?)" `)
+	s := pl[len(pl)-1].Embed_code
+	rm := r.FindAllStringSubmatch(s, 1)
+
+	if len(rm) == 1 && len(rm[0]) == 2 {
+		vurl := rm[0][1]
+		u, _ := url.Parse(vurl)
+		if u.Scheme == "" {
+			u.Scheme = "http"
+		}
+		f.Url = *u
+		if strings.HasSuffix(f.Url.Host, "tumblr.com") {
+			f = f.SetLeaf()
+		}
+	} else {
+		f.Err = errors.New("Videopost: " + s)
+	}
+	f.Path += "-"
+	return f, p
+}
+
+func tumblrPhoto(f File, raw []byte, ch chan File) photoPost {
+	p := photoPost{}
+	f.Err = json.Unmarshal(raw, &p)
+	for i, photo := range p.Photos {
+		us := photo.Alt_sizes[0].Url
+		u, err := url.Parse(us)
+		nf := f
+		if len(p.Photos) != 1 {
+			nf.Path += "-" + strconv.Itoa(i)
+		}
+		if err != nil {
+			nf.Err = err
+		} else {
+			nf.Url = *u
+		}
+		ch <- nf.SetLeaf()
+	}
+	return p
+}
+
+func tumblrText(bf File, raw []byte, t string) (File, interface{}) {
+	var err error
+	var p interface{}
+	var ext, content string
+
+	switch t {
 	case "answer", "audio", "chat":
 		//not implemented
-		return
 	case "link":
 		lp := linkPost{}
 		err = json.Unmarshal(raw, &lp)
 		p = lp
 		ext = "-link.txt"
-		bf.FromString(lp.Url)
+		content = lp.Url
 	case "quote":
 		lp := quotePost{}
 		err = json.Unmarshal(raw, &lp)
 		p = lp
 		ext = "-quote.txt"
-		bf.FromString(lp.Text)
+		content = lp.Text
 	case "text":
 		lp := textPost{}
 		err = json.Unmarshal(raw, &lp)
 		p = lp
 		ext = ".txt"
-		bf.FromString(lp.Body)
-	case "video":
-		lp := videoPost{}
-		err = json.Unmarshal(raw, &lp)
-		p = lp
-
-		pl := lp.Player
-		r := regexp.MustCompile(`src="(.+?)" `)
-		s := pl[len(pl)-1].Embed_code
-		rm := r.FindAllStringSubmatch(s, 1)
-
-		if len(rm) == 1 && len(rm[0]) == 2 {
-			vurl := rm[0][1]
-			u, _ := url.Parse(vurl)
-			if u.Scheme == "" {
-				u.Scheme = "http"
-			}
-			nf := bf
-			nf.Url = *u
-			//  Is this video stored on tumblr itself?
-			if strings.Contains(u.Host, "tumblr.com") {
-				// Then we can download the video with a simple GET
-				nf.FromUrl(nf.Url.String())
-				fs <- nf
-			} else {
-				fs <- nf
-			}
-		} else {
-			return errors.New("Videopost: " + s)
-		}
-		// fmt.Println(lp)
-		return // TODO: Metadata  is not saved for videos
-	case "photo":
-		lp := photoPost{}
-		err = json.Unmarshal(raw, &lp)
-		p = lp
-		for i, photo := range lp.Photos {
-			uri := photo.Alt_sizes[0].Url
-			ext := uri[len(uri)-4:]
-			iname := fmt.Sprintf("%s-%d%s", id, i, ext)
-			if len(lp.Photos) == 1 {
-				iname = id + ext
-			}
-			nf := bf
-			nf.FromUrl(uri)
-			fs <- nf.Append(iname)
-
-		}
+		content = lp.Body
 	default:
-		return errors.New("Unknown Tumblr post type")
+		bf.Err = errors.New("Unknown Tumblr post type")
 	}
-	if err != nil {
-		return err
+	bf.Body = []byte(content)
+	bf.Path += ext
+	if err == nil {
+		bf = bf.SetLeaf()
+	} else {
+		bf.Err = err
 	}
 
-	if bp.PostType != "photo" {
-		nf := bf
-		fs <- nf.Append(id + ext)
-	}
-	// store metadata in json file
-	nf := bf
-	nf.Read = func() (r io.ReadCloser, err error) {
-		b, err := json.MarshalIndent(p, "", "\t")
-		if err != nil {
-			return
-		}
-		return fakeCloser{bytes.NewReader(b)}, err
-	}
-	fs <- nf.Append("." + id + ".json")
-	return
+	return bf, p
 }
 
 func checkResponse(rc *http.Response, resp interface{}) {
 	if !(rc.StatusCode < 300 && rc.StatusCode >= 200) {
+		println(rc.Request.URL.String())
 		check(errors.New("Request: " + rc.Status))
 	}
 	data, err := ioutil.ReadAll(rc.Body)

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -22,53 +23,53 @@ func init() {
 	HClient = &http.Client{Jar: cj}
 }
 
-// used for testing
-var httpHost url.URL
-
-func Http(f File, files chan File, errs chan error) {
-	f, err := httpGet(f)
-	files <- f
-	errs <- err
-}
-
-func httpGet(f File) (file File, err error) {
-	u := replaceHost(f.Url, httpHost.Host)
+func HGet(f File) (out File, r io.ReadCloser) {
 	// TODO: check mimetypes and filename header to determine
 	// correct filename and extension
-	ext := filepath.Ext(f.Url.Path)
-	if ext == ".asp" || ext == ".php" {
-		ext = ".html"
-	}
-	if ext == "" {
-		ext = ".bin"
+
+	if len(f.Path) > 0 && f.Path[len(f.Path)-1] == '/' {
+		name := filepath.Base(f.Url.Path)
+		if name == "/" {
+			// TODO: its probably better to fail here
+			name = "Noname"
+		}
 	}
 
-	name := filepath.Base(f.Url.Path)
-	if name == "/" {
-		// TODO: its probably better to fail here
-		name = "Noname"
+	if filepath.Ext(f.Path) == "" {
+		ext := filepath.Ext(f.Url.Path)
+		if ext == ".asp" || ext == ".php" {
+			ext = ".html"
+		}
+		if ext == "" {
+			ext = ".bin"
+		}
+		f.Path += ext
 	}
-	resp, err := HClient.Get(u.String())
+
+	resp, err := HClient.Get(f.Url.String())
 	if err != nil {
+		out.Err = err
 		return
 	}
 	if resp.StatusCode == 401 {
-		resp, err = basicAuth(u)
+		resp, err = basicAuth(f.Url)
 		if err != nil {
+			out.Err = err
 			return
 		}
 	}
 	sc := resp.StatusCode
 	if !(sc >= 200 && sc < 300) {
-		return File{}, errors.New(f.Url.String() + ": " + resp.Status)
+		return File{Err: errors.New(f.Url.String() + ": " + resp.Status)}, nil
 	}
-	mtime, err := time.Parse(time.RFC1123, resp.Header.Get("Last-Modified"))
-	if err == nil {
+	if f.Mtime == (time.Time{}) {
+		mtime, err := time.Parse(time.RFC1123, resp.Header.Get("Last-Modified"))
+		if err != nil {
+			f.Mtime = time.Now()
+		}
 		f.Mtime = mtime
 	}
-	return NewFile(f, name+ext, &f.Url, nil, func() (io.ReadCloser, error) {
-		return resp.Body, nil
-	}), nil
+	return f, resp.Body
 }
 
 func basicAuth(u url.URL) (resp *http.Response, err error) {
@@ -89,10 +90,10 @@ func grabHttp(rawurl string) (string, error) {
 	if e != nil {
 		return "", e
 	}
-	f, err := httpGet(File{Url: *u})
-	if err != nil {
-		return "", err
+	f, r := HGet(File{Url: *u})
+	if f.Err != nil {
+		return "", f.Err
 	}
-	cont, err := f.ReadAll()
+	cont, err := ioutil.ReadAll(r)
 	return string(cont), err
 }

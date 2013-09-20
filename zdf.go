@@ -21,14 +21,15 @@ var (
 			Queries("flash", "off")
 )
 
-func Zdf(f File, fs chan File, es chan error) {
+func Zdf(f File, ch chan File) {
 	for i := 0; i <= 7; i++ {
 		zdfDayUrl, _ := zdfDay.URL("d", strconv.Itoa(i))
 		up, _ := url.Parse(zdfHost + zdfDayUrl.String())
 		u := *up
+		var root h5.Tree
 		root, err := grabParse(u)
 		if err != nil {
-			es <- err
+			f.SendErr(ch, &err)
 			return
 		}
 
@@ -44,7 +45,7 @@ func Zdf(f File, fs chan File, es chan error) {
 				}
 				root, err := grabParse(u)
 				if err != nil {
-					es <- err
+					f.SendErr(ch, &err)
 					return
 				}
 
@@ -54,11 +55,17 @@ func Zdf(f File, fs chan File, es chan error) {
 						if strings.Contains(v, "veryhigh") && // high quality
 							strings.Contains(v, "hstreaming.") { // .mov format
 							name := filepath.Base(v)
+							u, err := url.Parse(v)
 
 							nf := f
-							nf.FromUrl(v)
-							nf.Mtime = time.Now()
-							fs <- nf.Append(name)
+							if err == nil {
+								nf.Url = *u
+							} else {
+								nf.Err = err
+							}
+
+							nf.Path += name
+							ch <- nf.SetLeaf()
 						}
 					})
 			})
@@ -72,10 +79,10 @@ func grabParse(u url.URL) (t h5.Tree, err error) {
 		return
 	}
 	tp, err := h5.NewFromString(c)
-	t = *tp
 	if err != nil {
 		return
 	}
+	t = *tp
 	return
 }
 

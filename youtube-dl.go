@@ -3,9 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +13,7 @@ import (
 	"time"
 )
 
-func YoutubeDl(f File, fs chan File, es chan error) {
+func YoutubeDl(f File, ch chan File) {
 	base, rmTmp := TempDir()
 	defer rmTmp()
 
@@ -24,18 +23,19 @@ func YoutubeDl(f File, fs chan File, es chan error) {
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
 	if err != nil {
-		es <- errors.New("youtube-dl does not support: " + f.Url.String())
+		err = errors.New("youtube-dl does not support: " + f.Url.String())
+		f.SendErr(ch, &err)
 		return
 	}
 
 	baseDir, err := os.Open(base)
 	if err != nil {
-		es <- err
+		f.SendErr(ch, &err)
 		return
 	}
 	infoFiles, err := baseDir.Readdirnames(-1)
 	if err != nil {
-		es <- err
+		f.SendErr(ch, &err)
 		return
 	}
 
@@ -45,26 +45,37 @@ func YoutubeDl(f File, fs chan File, es chan error) {
 		var content []byte
 		content, err = ioutil.ReadFile(name)
 		if err != nil {
-			es <- err
-			return
+			f.SendErr(ch, &err)
+			continue
 		}
 		var info info
 		err = json.Unmarshal(content, &info)
 		if err != nil {
-			es <- err
-			return
+			f.SendErr(ch, &err)
+			continue
 		}
 
+		f.Path += strings.Replace(info.Title, "/", "_", -1) + "." + info.Ext
+
+		url, err := url.Parse(info.Url)
+		if err != nil {
+			f.SendErr(ch, &err)
+			continue
+		}
+		f.Url = *url
+
 		upd := info.Upload_date
-		mtime := unixZerotime
+		mtime := time.Time{}
 		if len(upd) != 8 {
-			es <- errors.New("YoutubeDl: Invalid upload date: " + info.Upload_date)
+			err = errors.New("YoutubeDl: Invalid upload date: " + info.Upload_date)
+			f.SendErr(ch, &err)
 		} else {
 			year, e1 := strconv.Atoi(upd[0:4])
 			month, e2 := strconv.Atoi(upd[4:6])
 			day, e3 := strconv.Atoi(upd[6:8])
 			if e1 != nil || e2 != nil || e3 != nil {
-				es <- errors.New("YoutubeDl: Could not parse Upload date")
+				err = errors.New("YoutubeDl: Could not parse Upload date")
+				f.SendErr(ch, &err)
 			} else {
 				mtime = time.Date(
 					year,
@@ -73,44 +84,16 @@ func YoutubeDl(f File, fs chan File, es chan error) {
 					time.UTC)
 			}
 		}
-
-		f.Append(strings.Replace(info.Title, "/", "_", -1) + "." + info.Ext)
 		f.Mtime = mtime
-		f.Read = func() (r io.ReadCloser, err error) {
-			base, rmTmp := TempDir()
-			if err != nil {
-				return
-			}
-			// Behaviour in OS X: The temporary file will be
-			// automatically deleted after it is closed
-			// TODO: Find out if this works the same on other OS's
-			defer rmTmp()
 
-			cmd := exec.Command("/usr/bin/env",
-				"youtube-dl", "--id", f.Url.String())
-			cmd.Dir = base
-			// cmd.Stdout = os.Stderr
-			cmd.Stderr = os.Stderr
-			err = cmd.Run()
-			if err != nil {
-				return nil, errors.New(
-					fmt.Sprintf(
-						"youtube-dl failed: %v (%v)",
-						f.Url.String(),
-						err.Error()))
-			}
-
-			return os.Open(filepath.Join(base, info.Id+"."+info.Ext))
-		}
-
-		fs <- f
+		ch <- f.SetLeaf()
 	}
 
 	return
 }
 
 type info struct {
-	Upload_date, Title, Id, Ext string
+	Upload_date, Title, Id, Ext, Url string
 }
 
 // type info struct{

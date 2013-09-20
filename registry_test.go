@@ -12,11 +12,10 @@ import (
 
 func testIndexFn(t *testing.T, ifn IndexFn, f File, expected []File) {
 	fs := make(chan File)
-	es := make(chan error)
 	actual := []File{}
 	finish := make(chan bool)
 	go func() {
-		ifn(f, fs, es)
+		ifn(f, fs)
 		finish <- true
 	}()
 LOOP:
@@ -24,10 +23,6 @@ LOOP:
 		select {
 		case f := <-fs:
 			actual = append(actual, f)
-		case e := <-es:
-			if e != nil {
-				t.Error(e)
-			}
 		case <-time.After(1 * time.Second):
 			t.Error("Index function timed out")
 			break LOOP
@@ -91,10 +86,5 @@ func parseStringTest(line string) (File, error) {
 	secs, err := strconv.Atoi(parts[len(parts)-1])
 	mtime := time.Unix(int64(secs), 0)
 
-	return File{path: parts[len(parts)-2], Url: *u, Mtime: mtime}, nil
-}
-
-func replaceHost(u url.URL, h string) url.URL {
-	u.Host = h
-	return u
+	return File{Path: parts[len(parts)-2], Url: *u, Mtime: mtime}, nil
 }

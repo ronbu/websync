@@ -1,55 +1,60 @@
 package main
 
 import (
+	"io"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
 
-func TestSync(t *testing.T) {
-	// Sync is depth first
+func TestRecursive(t *testing.T) {
+	// Recursive is depth first
 	input := [][]int{{1, 0, 6}, {0, 4, 5}, {2, 3}}
+	ch := make(chan File)
+	go func() {
+		recursive(File{}, ch, fakeIndex(input))
+		close(ch)
+	}()
+
 	expN := 1
-	fs, es := injectableSync("", "", fakeLookup(input),
-		func(f File) error {
-			n, _ := strconv.Atoi(f.Path())
+LOOP:
+	for {
+		select {
+		case f, ok := <-ch:
+			if !ok {
+				break LOOP
+			}
+			n, _ := strconv.Atoi(f.Path)
 			if n != expN {
 				t.Errorf("%d should have been %d", n, expN)
 			}
 			expN++
-			return nil
-		})
-Loop:
-	for {
-		select {
-		case _, ok := <-fs:
-			if !ok {
-				break Loop
-			}
-		case <-es:
+		case <-time.After(100 * time.Millisecond):
+			t.Error("timeout expected:", expN)
+			break LOOP
 		}
 	}
 	expected := flattenInts(input)
 	if expN < len(expected) {
-		t.Error("Missing Files:", expected[expN:])
+		t.Error("Missing:", expected[expN:])
 	}
 }
 
-func fakeLookup(nums [][]int) LookupFn {
+func fakeIndex(nums [][]int) IndexFn {
 	i := 0
-	return func(f File) (IndexFn, error) {
-		return func(f File, files chan File, errs chan error) {
-			for _, n := range nums[i] {
-				nf := f
-				nf.FromString("")
-				if n == 0 {
-					i++
-					nf.Read = nil
-				}
-				files <- nf.Append(strconv.Itoa(n))
+	return func(f File, ch chan File) {
+		for _, n := range nums[i] {
+			nf := f
+			nf.Path = strconv.Itoa(n)
+			if n == 0 {
+				i++
+			} else {
+				nf = nf.SetLeaf()
 			}
-		}, nil
+			ch <- nf
+		}
 	}
 }
 
@@ -67,14 +72,14 @@ func flattenInts(ints [][]int) []int {
 }
 
 func TestLocalNew(t *testing.T) {
-	testLocal(t, func(f File) File {
+	testLocal(t, func(f File, r io.ReadCloser) File {
 		return f
 	}, true)
 }
 
 func TestLocalOverwriteOlder(t *testing.T) {
-	testLocal(t, func(f File) File {
-		err := Local(f)
+	testLocal(t, func(f File, r io.ReadCloser) File {
+		err := Local(f, r)
 		if err != nil {
 			t.Error(err)
 		}
@@ -84,8 +89,8 @@ func TestLocalOverwriteOlder(t *testing.T) {
 }
 
 func TestLocalNotOverwriteNewer(t *testing.T) {
-	testLocal(t, func(f File) File {
-		err := Local(f)
+	testLocal(t, func(f File, r io.ReadCloser) File {
+		err := Local(f, r)
 		if err != nil {
 			t.Error(err)
 		}
@@ -95,8 +100,9 @@ func TestLocalNotOverwriteNewer(t *testing.T) {
 }
 
 func TestLocalCreateDirs(t *testing.T) {
-	testLocal(t, func(f File) File {
-		return f.Append("a/dir/oh/uh/hi/ho")
+	testLocal(t, func(f File, r io.ReadCloser) File {
+		f.Path += "a/dir/oh/uh/hi/ho"
+		return f
 	}, true)
 }
 
@@ -104,25 +110,25 @@ func TestLocalCreateDirs(t *testing.T) {
 func TestLocalOverwriteDir(t *testing.T) {
 	tmp, rm := TempDir()
 	defer rm()
-	f := someTestFile(tmp)
-	err := os.Mkdir(f.Path(), 777)
+	f, r := someTestFile(tmp)
+	err := os.Mkdir(f.Path, 777)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = os.Chtimes(f.Path(), time.Now(), time.Now().Add(-time.Hour))
+	err = os.Chtimes(f.Path, time.Now(), time.Now().Add(-time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if Local(f) == nil {
+	if Local(f, r) == nil {
 		t.Error("should have failed")
 	}
 }
 
-func testLocal(t *testing.T, init func(File) File, overwrite bool) {
+func testLocal(t *testing.T, init func(File, io.ReadCloser) File, overwrite bool) {
 	tmp, rm := TempDir()
-	of := someTestFile(tmp)
-	f := init(of)
-	err := Local(f)
+	of, r := someTestFile(tmp)
+	f := init(of, r)
+	err := Local(f, r)
 	if err != nil {
 		t.Error(err)
 	}
@@ -133,19 +139,18 @@ func testLocal(t *testing.T, init func(File) File, overwrite bool) {
 	rm()
 }
 
-func someTestFile(tmp string) File {
-	f := File{Mtime: time.Now(), path: tmp + "/a"}
-	f.FromString("test")
-	return f
+func someTestFile(tmp string) (File, io.ReadCloser) {
+	f := File{Mtime: time.Now(), Path: tmp + "/a"}
+	return f, newFakeCloser("test")
 }
 
 func checkFile(t *testing.T, f File) {
-	st, err := os.Stat(f.Path())
+	st, err := os.Stat(f.Path)
 
 	f.Mtime = removeSubSecond(f.Mtime)
 
 	if err != nil && os.IsNotExist(err) {
-		t.Error("File does not exist:", f.Path())
+		t.Error("File does not exist:", f.Path)
 	} else {
 		if !(st.ModTime().Equal(f.Mtime)) {
 			t.Errorf("Not overwritten")

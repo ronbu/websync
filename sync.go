@@ -1,55 +1,64 @@
 package main
 
 import (
-	"errors"
+	"bytes"
 	"io"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-func Sync(from, to string, lookup LookupFn) (chan File, chan error) {
-	return injectableSync(from, to, lookup, Local)
-}
-
-func injectableSync(from, to string, lookup LookupFn, writeFile func(File) error) (
-	chan File, chan error) {
-
-	files := make(chan File)
-	errs := make(chan error)
-
-	fromUri, err := url.Parse(from)
-	if err != nil {
-		errs <- err
-		return nil, errs
-	}
-
+func Sync(from, to string) chan File {
+	ch := make(chan File)
 	if to != "" && to[len(to)-1] != '/' {
 		to += "/"
 	}
+	u, err := url.Parse(from)
+	f := File{Path: to}
+	if err != nil {
+		f.SendErr(ch, &err)
+		return ch
+	}
+	f.Url = *u
 
 	go func() {
-		recursiveSync((&File{Url: *fromUri}).Append(to), files, errs, lookup, writeFile)
-		close(files)
-		close(errs)
+		Recursive(f, ch)
+		close(ch)
 	}()
-	return files, skipNil(errs)
+
+	out := make(chan File)
+	go func() {
+		for f := range ch {
+			if f.Err == nil {
+				var r io.ReadCloser
+				if f.Body == nil {
+					f, r = HGet(f)
+					if f.Err != nil {
+						f.SendErr(out, &f.Err)
+						continue
+					}
+				} else {
+					r = fakeCloser{bytes.NewReader(f.Body)}
+				}
+				f.Err = local(f, r)
+			}
+			out <- f
+		}
+		close(out)
+	}()
+	return out
 }
 
-func recursiveSync(f File, files chan File, errs chan error,
-	lookup LookupFn, writeFile func(File) error) {
+func Recursive(f File, ch chan File) {
+	recursive(f, ch, Index)
+}
 
-	indexFn, err := lookup(f)
-	errs <- err
-	if indexFn == nil {
-		errs <- errors.New("Not Supported: " + f.Url.String())
-		return
-	}
-
-	hfiles := make(chan File)
+func recursive(f File, ch chan File, ifn IndexFn) {
+	in := make(chan File)
 	finish := make(chan bool)
 	go func() {
-		indexFn(f, hfiles, errs)
+		ifn(f, in)
 		finish <- true
 	}()
 
@@ -58,59 +67,47 @@ LOOP:
 		select {
 		case <-finish:
 			break LOOP
-		case f := <-hfiles:
-			if f.Read == nil {
-				recursiveSync(f, files, errs, lookup, writeFile)
+		case f := <-in:
+			if f.Err == nil {
+				recursive(f, ch, ifn)
 			} else {
-				err = writeFile(f)
-				if err != nil {
-					errs <- err
-				} else {
-					files <- f
+				if f.Leaf() {
+					f.Err = nil
 				}
+				ch <- f
 			}
 		}
 	}
 }
 
-func skipNil(in chan error) chan error {
-	out := make(chan error, len(in))
-	go func() {
-		for e := range in {
-			if e != nil {
-				out <- e
-			}
-		}
-		close(out)
-	}()
-	return out
-}
-
-func Local(file File) (err error) {
-	path := file.Path()
-	st, err := os.Stat(path)
+func local(file File, r io.ReadCloser) (err error) {
+	st, err := os.Stat(file.Path)
 	if err != nil && !os.IsNotExist(err) {
 		return
 	}
 	if st == nil || file.Mtime.After(st.ModTime()) {
-		err = os.MkdirAll(filepath.Dir(path), 0777)
+		err = os.MkdirAll(filepath.Dir(file.Path), 0777)
 		if err != nil {
 			return err
 		}
-		osfile, err := os.Create(path)
+		osfile, err := os.Create(file.Path)
 		if err != nil {
 			return err
 		}
 		defer osfile.Close()
-		r, err := file.Read()
-		if err != nil {
-			return err
-		}
 		_, err = io.Copy(osfile, r)
 		if err != nil {
 			return err
 		}
-		os.Chtimes(path, file.Mtime, file.Mtime)
+		os.Chtimes(file.Path, file.Mtime, file.Mtime)
 	}
 	return
 }
+
+type fakeCloser struct{ io.Reader }
+
+func newFakeCloser(s string) io.ReadCloser {
+	return fakeCloser{strings.NewReader(s)}
+}
+
+func (f fakeCloser) Close() error { return nil }
