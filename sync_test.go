@@ -2,7 +2,9 @@ package main
 
 import (
 	"io"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -179,6 +181,8 @@ func testTmp(t *testing.T) (name string, stop func()) {
 		t.Fatal(err)
 	}
 	return name, func() {
-		check(os.RemoveAll(name))
+		if err = os.RemoveAll(name); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
