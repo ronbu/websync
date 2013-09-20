@@ -168,3 +168,17 @@ func removeSubSecond(in time.Time) time.Time {
 		in.Second(),
 		0, in.Location())
 }
+
+func testTmp(t *testing.T) (name string, stop func()) {
+	name, err := ioutil.TempDir("", "websync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, err = filepath.EvalSymlinks(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return name, func() {
+		check(os.RemoveAll(name))
+	}
+}
