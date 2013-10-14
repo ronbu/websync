@@ -34,11 +34,11 @@
 
 
 (deftest write-file-test
-  (let [tmp (java.io.File/createTempFile "websync" "")
-        _ (.delete tmp) ; TODO: Create a dir not a file
-        dt (ts/date-time 2008)
+  (let [tmp    (java.io.File/createTempFile "websync" "")
+        _      (.delete tmp) ; TODO: Create a dir not a file
+        dt     (ts/date-time 2008)
         before (ts/minus dt (ts/years 1))
-        after (ts/plus dt (ts/secs 12))]
+        after  (ts/plus dt (ts/secs 12))]
     (testing "Write File"
       (is (= (write-tmp tmp "a" dt) dt)))
     (testing "Update File"
