@@ -1,8 +1,6 @@
-language: go
-go:
-  - 1.1
-  - tip
-# install:
-#   - go get github.com/gorilla/mux
-#   - go get code.google.com/p/go-html-transform/h5
-#   - go get code.google.com/p/go.net/html
+language: clojure
+lein: lein2
+script: lein2 all test
+jdk:
+  - oraclejdk7
+  - openjdk7
