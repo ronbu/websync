@@ -1,2 +1,6 @@
 pattern: glob
 tmp
+target
+.lein-repl-history
+pom.xml
+.nrepl-port
