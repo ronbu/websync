@@ -32,28 +32,12 @@
 (def zdfDay (str zdfMediathek
                "hauptnavigation/sendung-verpasst/day%d?flash=off"))
 
-(defn zdf-old [file]
-  (let [postlinks (flatten (map #(html/select (html/html-resource (html/html-resource (io/as-url (format zdfDay %)))) [:div.beitragListe :div.image :a]) (range 1)))
-        posturls (map #(java.net.URL. (io/as-url zdfHost ) (get-in % [:attrs :href])) postlinks)
-        posttrees (map #(html/html-resource %) posturls)
-        videonames (map #(first (:content (first (html/select % [:h1.beitragHeadline])))) posttrees)
-        videolinks (map #(last (html/select % [:ul.dslChoice :a])) posttrees)
-        videourls (map #(java.net.URL. (io/as-url zdfHost) (get-in % [:attrs :href])) videolinks)]
-   (map #(hash-map :name (str %1 ".mov") :url %2) videonames videourls)))
-
 (defn url [&[url relative]]
   (java.net.URL. (io/as-url url) (or relative "")))
 
 (url "http://w.com/holla" "haha") ; TODO: fix this bug
 
 (defn zdf-url [href] (url zdfHost href))
-
-(defn zdf [file]
-  (map zdf-post (flatten (map zdf-post-links (range 1)))))
-
-(defn zdf-post-links [url]
-  (html/select (html/html-resource (io/as-url (format zdfDay url)))
-               [:div.beitragListe :div.image :a]))
 
 (defn get-href [a] (get-in a [:attrs :href]))
 
@@ -65,3 +49,10 @@
         videolink (last (html/select posttree [:ul.dslChoice :a]))
         videourl (zdf-url (get-href videolink))]
    {:name (str videoname ".mov") :url videourl}))
+
+(defn zdf-post-links [url]
+  (html/select (html/html-resource (io/as-url (format zdfDay url)))
+               [:div.beitragListe :div.image :a]))
+
+(defn zdf [file]
+  (map zdf-post (flatten (map zdf-post-links (range 1)))))
