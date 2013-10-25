@@ -9,4 +9,6 @@
                  [org.clojure/core.async "0.1.242.0-44b1e3-alpha"]
                  [clj-http "0.7.6"]
                  [clj-time "0.6.0"]
-                 [me.raynes/fs "1.4.5"]])
+                 [me.raynes/fs "1.4.5"]
+                 [http-kit "2.1.13"]
+                 [enlive "1.1.4"]])
